@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deglyph"
+dynamic = ["version"]
+description = "A terminal reverse-engineering tool for native binaries (PE / ELF / Mach-O)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Alex Spataru" }]
+keywords = [
+    "reverse-engineering", "disassembler", "binary-analysis", "static-analysis",
+    "security", "appsec", "malware-analysis", "ctf", "tui", "capstone", "lief",
+    "pe", "elf", "macho", "x86", "arm", "decompiler", "binary",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Disassemblers",
+    "Topic :: Software Development :: Debuggers",
+]
+dependencies = [
+    "textual>=0.60",
+    "rich>=13",
+    "capstone>=5",
+    "pefile>=2023",
+    "lief>=0.14",
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+demangle = ["cxxfilt>=0.3"]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "black>=24",
+]
+
+[project.urls]
+Homepage = "https://deglyph.dev"
+Repository = "https://github.com/deglyph-re/cli"
+Issues = "https://github.com/deglyph-re/cli/issues"
+Changelog = "https://github.com/deglyph-re/cli/blob/main/CHANGELOG.md"
+
+[project.scripts]
+deglyph = "deglyph.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "deglyph.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["deglyph*"]
+
+[tool.setuptools.package-data]
+deglyph = ["tui/*.tcss", "py.typed"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+# pyflakes (F), pycodestyle (E/W), isort (I), pyupgrade (UP), flake8-bugbear (B)
+select = ["E", "F", "W", "I", "UP", "B"]
+# Capstone exposes constants via star-import; long URLs in docstrings.
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# Third-party stubs are absent for LIEF / Capstone / pefile.
+ignore_missing_imports = true
+
+# The Textual app holds image/dis as None until on_mount and leans on framework
+# dynamism; full static typing there is low-value churn. Type-check the library.
+[[tool.mypy.overrides]]
+module = "deglyph.tui.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["deglyph"]
+omit = ["deglyph/tui/*"]
+
+[tool.coverage.report]
+# The library (core + re + cli) is the tested surface; the Textual app is omitted
+# above and exercised by the pilot smoke test. Fail CI if library coverage drops.
+fail_under = 60
+show_missing = true

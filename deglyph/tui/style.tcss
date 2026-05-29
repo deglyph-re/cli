@@ -1,0 +1,388 @@
+/* deglyph — Author: Alex Spataru | GPLv3
+   Colors come from the active Textual theme (default: the "deglyph" terracotta
+   palette registered in app.py). Use theme variables, not hardcoded hex, so the
+   built-in theme switcher (Ctrl+P -> Change theme) recolors the chrome. */
+
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+/* Title bar: menu glyph · title · nav controls · clock, all in one band.
+   Clickable controls are links; drop the default underline (they read as
+   buttons, not hyperlinks) and give a filled hover instead. */
+#header {
+    height: 1;
+    background: $panel;
+}
+#hdr-menu {
+    width: auto;
+    color: $accent;
+    link-color: $accent;
+    link-style: none;
+    link-color-hover: $background;
+    link-background-hover: $accent;
+    link-style-hover: bold;
+}
+#hdr-title {
+    width: 1fr;
+    content-align: left middle;
+}
+#hdr-nav {
+    width: auto;
+    color: $text-muted;
+    link-color: $accent;
+    link-style: none;
+    link-color-hover: $background;
+    link-background-hover: $accent;
+    link-style-hover: bold;
+}
+#hdr-clock {
+    width: auto;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+Footer {
+    background: $panel;
+}
+Footer > .footer--key {
+    background: $primary;
+    color: $background;
+    text-style: bold;
+}
+Footer > .footer--description {
+    color: $text-muted;
+}
+
+#body {
+    height: 1fr;
+}
+
+/* Left: function tree.  Right: detail tabs. */
+#left {
+    width: 44%;
+    border-right: solid $panel;
+}
+#right {
+    width: 56%;
+}
+
+#search {
+    dock: top;
+    height: 3;
+    border: round $panel;
+    background: $surface;
+}
+#search:focus {
+    border: round $primary;
+}
+
+#functions {
+    height: 1fr;
+    background: $background;
+    padding: 0;
+}
+#functions > .tree--guides,
+#functions > .tree--guides-hover {
+    color: $panel;
+}
+#functions > .tree--guides-selected {
+    color: $accent;
+}
+#functions > .tree--cursor {
+    background: $primary;
+    color: $background;
+    text-style: bold;
+}
+#functions > .tree--highlight {
+    background: $boost;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+Tabs {
+    background: $surface;
+}
+Tab {
+    color: $text-muted;
+}
+Tab.-active {
+    color: $accent;
+    text-style: bold;
+}
+
+/* The scroll container owns the height + scrollbar; the Static grows to fit. */
+.pane-scroll {
+    height: 1fr;
+    background: $background;
+    scrollbar-size-vertical: 1;
+    scrollbar-color: $panel;
+    scrollbar-color-hover: $primary;
+    scrollbar-color-active: $primary;
+}
+.pane {
+    height: auto;
+    padding: 0 1;
+    background: $background;
+    /* Clickable spans (addresses in disasm operands, AI replies) read as
+       interactive: bold underline on hover. The base color comes from the
+       rendered span's own style, so amber/gold addresses keep their hue. */
+    link-style: underline;
+    link-color: $accent;
+    link-style-hover: bold underline;
+    link-background-hover: $boost;
+}
+
+/* Assistant tab: transcript fills, the question box docks at the bottom. */
+#ai-box {
+    height: 1fr;
+}
+#ai-scroll {
+    height: 1fr;
+}
+#ai-input {
+    dock: bottom;
+    height: 3;
+    border: round $panel;
+    background: $surface;
+}
+#ai-input:focus {
+    border: round $primary;
+}
+/* Shown only when an AI package is missing (toggled from app.py). */
+#ai-install {
+    dock: bottom;
+    width: 100%;
+    margin: 0 0 3 0;
+}
+/* Shown only while an ai-ask worker is in flight (toggled from app.py). */
+#ai-stop {
+    dock: bottom;
+    width: 100%;
+    margin: 0 0 3 0;
+}
+
+#status {
+    dock: bottom;
+    height: 1;
+    background: $panel;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+.empty {
+    color: $text-disabled;
+    text-style: italic;
+    padding: 1 2;
+}
+
+/* Startup "load saved context?" modal; the install confirm reuses #ctx-dialog. */
+ContextPrompt,
+InstallPrompt {
+    align: center middle;
+}
+#ctx-dialog {
+    width: 66;
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border: round $primary;
+}
+#ctx-title {
+    color: $accent;
+    text-style: bold;
+}
+#ctx-summary {
+    color: $foreground;
+    margin-top: 1;
+}
+#ctx-keys {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+/* About dialog. */
+AboutDialog {
+    align: center middle;
+}
+#about-dialog {
+    width: 66;
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border: round $primary;
+}
+#about-logo {
+    width: 100%;
+    content-align: center middle;
+    color: $accent;
+    margin-bottom: 1;
+}
+#about-sub {
+    width: 100%;
+    content-align: center middle;
+    color: $text-muted;
+}
+#about-desc {
+    width: 100%;
+    content-align: center middle;
+    margin-top: 1;
+}
+#about-author {
+    width: 100%;
+    content-align: center middle;
+}
+#about-repo {
+    width: 100%;
+    content-align: center middle;
+    color: $secondary;
+    margin-top: 1;
+}
+#about-keys {
+    width: 100%;
+    content-align: center middle;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+/* Welcome / start screen. */
+WelcomeScreen {
+    align: center middle;
+    background: $background;
+}
+#welcome {
+    width: 76;
+    height: auto;
+    padding: 1 2;
+}
+#welcome-logo {
+    width: 100%;
+    content-align: center middle;
+    color: $accent;
+    margin-bottom: 1;
+}
+#welcome-title {
+    width: 100%;
+    content-align: center middle;
+    color: $accent;
+    text-style: bold;
+}
+#welcome-tagline {
+    width: 100%;
+    content-align: center middle;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+#welcome-list {
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    background: $panel;
+    border: round $panel;
+}
+#welcome-hint {
+    width: 100%;
+    content-align: center middle;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+/* File navigator. */
+FilePicker {
+    align: center middle;
+}
+#picker-dialog {
+    width: 76;
+    height: 30;
+    padding: 1 2;
+    background: $panel;
+    border: round $primary;
+}
+#picker-title {
+    color: $accent;
+    text-style: bold;
+}
+#picker-path {
+    height: 3;
+    margin-top: 1;
+    border: round $panel;
+    background: $surface;
+}
+#picker-path:focus {
+    border: round $primary;
+}
+#picker-tree {
+    height: 1fr;
+    background: $background;
+    margin: 1 0;
+}
+#picker-hint {
+    color: $text-muted;
+}
+
+/* AI provider settings. */
+AISettingsScreen {
+    align: center middle;
+}
+#aiset-dialog {
+    width: 70;
+    height: auto;
+    padding: 1 2;
+    background: $panel;
+    border: round $primary;
+}
+#aiset-title {
+    color: $accent;
+    text-style: bold;
+    margin-bottom: 1;
+}
+.aiset-label {
+    color: $text-muted;
+    margin-top: 1;
+}
+#aiset-dialog Input {
+    border: round $panel;
+    background: $surface;
+}
+#aiset-dialog Input:focus {
+    border: round $primary;
+}
+#aiset-dialog Select {
+    width: 100%;
+}
+#aiset-dialog Select SelectCurrent {
+    border: round $panel;
+    background: $surface;
+}
+#aiset-dialog Select:focus SelectCurrent {
+    border: round $primary;
+}
+#aiset-hint {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+/* Recent / chats pick-one menu. */
+NavMenu {
+    align: center middle;
+}
+#menu-dialog {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    background: $panel;
+    border: round $primary;
+}
+#menu-title {
+    color: $accent;
+    text-style: bold;
+    margin-bottom: 1;
+}
+#menu-list {
+    height: auto;
+    max-height: 20;
+    background: $panel;
+}
