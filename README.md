@@ -1,4 +1,4 @@
-# ![Application Icon for deglyph](https://raw.githubusercontent.com/deglyph-re/cli/main/doc/icon-small.png) deglyph
+# <img src="https://raw.githubusercontent.com/deglyph-re/cli/main/doc/icon-small.png" alt="Application Icon for deglyph" width="24" height="24"> deglyph
 
 **Open a compiled binary and understand what it does, all from your terminal.**
 
