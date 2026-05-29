@@ -94,6 +94,7 @@ deglyph/
   __main__.py            enables `python -m deglyph`
 tests/       test_deglyph.py + per-feature tests (detectors, robustness, cli, render, call_tree, pseudo, ai, tui, store, search, discover, scan, account)
 samples/     demo.c + demo.exe: domain-neutral toy binary committed as a CI fixture (planted secret, crc16, opcode)
+doc/help/    the manual: help.json index + categorized Markdown entries (rendered by the website's docs.html)
 action.yml   composite GitHub Action wrapping `deglyph scan`; examples/deglyph-scan.yml is a consumer workflow
 deglyph.sh   self-bootstrapping launcher; deglyph.bat is the Windows equivalent
 ```
@@ -426,9 +427,11 @@ no token and no key the hosted path is dormant.
 `scan.py` reads a loaded `Image` (never executes it) and returns a flat `Finding` list.
 `scan_image` runs up to six detectors (secrets + imports always; the rest gated by their
 flags/args), ordered by trust: `scan_hardening` (LIEF-flag-driven posture report
-covering PE / ELF / Mach-O), `scan_secrets` (provider-token regexes + a credential-keyword
-rule, both always on; an entropy catch-all that is **opt-in** via `entropy=True` /
-`--entropy` because on native binaries it fires on build paths and mangled symbols),
+covering PE / ELF / Mach-O), `scan_secrets` (a catalog of high-precision provider-token
+regexes — AWS / GitHub / GitLab / Slack / Stripe / npm / SendGrid / OpenAI / Telegram / JWT /
+private keys — plus a generic credential rule, all always on; an entropy catch-all that is
+**opt-in** via `entropy=True` / `--entropy` because on native binaries it fires on build paths
+and mangled symbols),
 `scan_imports` (a curated capability map: exec / injection / memory-protect / dynamic-load /
 network / anti-debug), `scan_fingerprint` (string-signature library identification, returning
 `LibHit` records that feed the SBOM emitter and CVE matcher), `scan_cve` (osv.dev lookups
@@ -440,8 +443,28 @@ exploitability), a fingerprint hit is a version string the linker may have lied 
 Hardening + fingerprint default on (high signal); CVE off (network); entropy off (noisy on
 native binaries).
 
-`to_sarif` emits SARIF 2.1.0 from the `RULES` catalog; the exit code is `worst_level` vs
-`--fail-on` (default `warning`). `deglyph scan` / `deglyph sbom` dispatch before argparse in
+The generic credential rule (`secret/credential-keyword`) fires only with evidence of an
+actual *value*, never a bare keyword: `_credential_evidence` requires either an assignment
+(`password=<value>`, value scored by `_looks_like_secret_value(min_classes=2)`) or the keyword
+embedded in a single value-shaped token (`S3cr3t-demo-API-key-...`, `min_classes=3`). Classes
+are counted over **alnum only** (`_alnum_classes`: upper/lower/digit) so SCREAMING_CASE
+constants, dictionary words with stray punctuation (`"Password`), env-var names
+(`AWS_ACCESS_KEY_ID`), and mangled C++ symbols do not register; placeholders (`%{}$<>`) and
+paths are rejected outright. The bare-keyword form flooded real-binary scans (167 hits on one
+Qt app, all noise) — do not loosen it back to a keyword match.
+
+`scan_image(..., ignore=<set>, ignore_fp=<set>)` drops findings before the sort, so the report
+and the exit code agree (filter once, centrally — never per-renderer). `ignore` matches a rule
+by exact id or by category prefix when the token ends in `/` (`secret/` suppresses every
+`secret/*`); `ignore_fp` matches a finding's `fingerprint_of` hash (sha1 of `rule|message`,
+12 hex). The CLI exposes `scan --ignore RULE` (repeatable; comma-separated) and `--ignore-file`
+(default `.deglyphignore` in CWD): `load_ignore_file` parses one token per line (`#` comments),
+a `fingerprint:` / `fp:` prefix going to the fingerprint set, every other token to the rule
+set. `action.yml` exposes the `ignore` and `ignore-file` inputs, threaded into every scan step.
+
+`to_sarif` emits SARIF 2.1.0 from the `RULES` catalog; `to_json` emits a flat findings list
+(per-finding `fingerprint` + a level-count `summary`) for jq / custom gates, both selected via
+`--format`. The exit code is `worst_level` vs `--fail-on` (default `warning`). `deglyph scan` / `deglyph sbom` dispatch before argparse in
 `main()` (`argv[0] in ("scan", "sbom")`), leaving the `deglyph BINARY ...` parser untouched.
 
 ### Hardening posture reads LIEF flags, never decodes
@@ -453,7 +476,10 @@ NO_SEH) and `load_configuration.se_handler_count`; ELF reads `is_pie`, `GNU_STAC
 `GNU_RELRO` + `BIND_NOW` / `DF_1_NOW` / `DF_BIND_NOW` (RELRO level), and an `AARCH64` GNU
 property note (BTI/PAC); Mach-O reads `header.flags` for `MH_PIE` and `has_code_signature` /
 `code_signature`. Stack-canary detection is symbol-based across all three (`_CANARY_SYMBOLS`,
-`__stack_chk_fail` & friends). Flag constants (`_PE_DYNAMIC_BASE`, `_MH_PIE`, …) are kept
+`__stack_chk_fail` & friends); on PE it **also** reads the load configuration's
+`security_cookie` (`_pe_has_security_cookie`), since a stripped release MSVC build has no
+`__security_cookie` symbol yet a non-zero cookie VA still proves `/GS` — without this the
+canary check false-reports on every stripped PE. Flag constants (`_PE_DYNAMIC_BASE`, `_MH_PIE`, …) are kept
 literal so an older LIEF still works. Every finding is a *missing* protection (clean image →
 none): critical misses (no ASLR/DEP/canaries/PIE/RELRO) are `warning` (trips the default
 gate), posture improvements (CFG, fortify, high-entropy ASLR, BTI/PAC, unsigned) are `note`. A
@@ -503,17 +529,38 @@ self-contained file (inline `<style>`, no scripts/assets, user data `html.escape
 run still renders a body ("Clean across all scanned files"), because a sticky comment that
 goes blank on green looks broken.
 
-### The GitHub Action posts a sticky PR comment via actions/github-script
+### The GitHub Action: gate, summarize, publish, comment
 
-`action.yml` (composite) first runs the gating `deglyph scan` with the configured `--fail-on`
-(writing SARIF when `inputs.sarif` is set). When `inputs.comment == "true"` **and** the event
-is `pull_request`, a follow-up runs `deglyph scan --format markdown --fail-on never` and
-`actions/github-script@v7` updates the comment carrying the `<!-- deglyph-comment -->` marker
-in place (creating it if absent) — the marker is what keeps it sticky instead of stacking.
-Two contracts: (1) inputs reach the shell via `env:`, never `${{ }}` into `run:` (injection);
-(2) the markdown step uses `--fail-on never` so a failing gate still posts a comment (the
-gating step fails the job). Inputs (`cve`, `no-hardening`, `no-fingerprint`) mirror the CLI
-flags.
+`action.yml` (composite) runs four result surfaces off one scan invocation pattern. (1) The
+gating step (`id: scan`) runs `deglyph scan --fail-on <input>`; it resolves an effective SARIF
+path (the `sarif` input, or a `$RUNNER_TEMP` default when `upload-sarif` is on) and `echo`s it
+to `$GITHUB_OUTPUT` **before** the scan so the upload step finds it even when the gate fails.
+(2) A `summary` step (default on, `if: always()`) appends `--format markdown --fail-on never`
+to `$GITHUB_STEP_SUMMARY` on every run. (3) An `upload-sarif` step (`if: always()`,
+`github/codeql-action/upload-sarif@v3`) publishes to code scanning. (4) The PR-comment steps
+(`comment == "true"` **and** `pull_request`) render markdown and update the
+`<!-- deglyph-comment -->`-marked comment in place via `actions/github-script@v7` — the marker
+keeps it sticky instead of stacking. Contracts: (a) inputs reach the shell via `env:`, never
+`${{ }}` into `run:` (injection); (b) every non-gating scan uses `--fail-on never` so a failing
+gate still produces its surface; (c) the always-run surfaces (`summary`, `upload-sarif`) use
+`if: always()` so the failing gate doesn't abort them; (d) `upload-sarif` needs the caller's
+job to grant `security-events: write`, `comment` needs `pull-requests: write` (documented in
+the header + `examples/deglyph-scan.yml`). Inputs mirror the CLI flags (`cve`, `no-hardening`,
+`no-fingerprint`, `ignore`, `ignore-file`).
+
+### The help manual is a JSON-indexed Markdown set
+
+`doc/help/help.json` is an array of `{id, title, section, file}` objects; each `file` is a
+sibling Markdown entry. The website (`deglyph-re/website`, separate repo) renders it through
+`docs.html`, which fetches `help.json` + the Markdown from this repo's GitHub raw URL at runtime
+(client-side Showdown + highlight.js + mermaid, hash routing `#id`, section-grouped sidebar) —
+the same pattern serial-studio.com uses against Serial-Studio's `doc/help`. Contracts when
+editing the manual: (1) every `help.json` `file` must exist and every entry needs a unique `id`;
+(2) cross-link entries by their `file` name (`[Title](Other.md)`), which `docs.html` rewrites to
+`#id` — a `.md` link whose file is not in the index silently fails to rewrite; (3) the prose
+follows the same neutral, technical voice as the code comments (no marketing, no first person);
+(4) the website resolves the source via the cli repo's `main` branch, so manual edits go live
+when pushed. `docs.html` accepts `?base=<url>` to point at a local `doc/help` for preview.
 
 ## Common Mistakes
 
@@ -530,6 +577,8 @@ flags.
 | Editing the search box in code without locking | Set `_input_locked`; queued `Input.Changed` events carry stale values. |
 | `nearest_func` for a call target in `→` symbolization | Use `func_at` (exact); `nearest_func` names an unrelated export. |
 | Reporting a `scan` finding as a confirmed secret | Heuristic (regex / keyword / entropy). Say "candidate", not "leak". |
+| Loosening `secret/credential-keyword` back to a bare keyword match | It must require a value (`_credential_evidence`); a bare keyword is a field/env-name and floods the report (167 noise hits on one app). |
+| Adding a `doc/help` page without updating `help.json` (or vice versa) | The website renders only indexed files; an orphan `.md` is invisible and an index entry with no file 404s. Keep them in sync, unique `id`s. |
 | Putting Pro logic or a key in the public client | The gate is server-side; `HostedBackend` is a token-bearing HTTP client only. |
 | Routing a backend off `provider() == "openai"` | Use `provider_family()`; `groq`/`openrouter`/`deepseek` are openai-family under a non-`openai` key. |
 | Enabling the entropy rule by default | Noisy on native binaries; keep it behind `--entropy` / `entropy=True`. |
