@@ -65,7 +65,7 @@ deglyph/
   account.py token store + endpoint URL for the optional hosted (Pro) tier
   config.py  tiny persistent app config (e.g. the chosen theme) -> ~/.deglyph/config.json
   tui/       app.py      Textual application; grouped function tree + tabbed detail view
-             render.py   colorized disassembly + hexdump (Rich Text)
+             render.py   colorized disassembly + hexdump + whole-file content map (Rich Text)
              glyphs.py   three-tier glyph table: Nerd Font -> Unicode -> ASCII ($DEGLYPH_NERD/$DEGLYPH_ASCII)
              logo.py     baked ASCII/Unicode wordmark + tagline (welcome screen, About)
              style.tcss  theme (theme variables, not hardcoded hex)
@@ -83,6 +83,9 @@ deglyph.sh   self-bootstrapping launcher; deglyph.bat is the Windows equivalent
 ### Address model
 `Image` works in **virtual addresses** with the image base already applied. LIEF reports PE export addresses as RVAs; `load_image` adds `base`. Every address into `read_va` / `func_at` / `nearest_func` is a VA. Section raw data is read lazily from disk, cached per section.
 
+### Fat (universal) Mach-O: one slice, offsets folded to the file
+A fat Mach-O carries several arch slices (e.g. `x86_64` + `arm64e`). `lief.parse(path)` returns **only the first**, and worse, LIEF reports each section `offset` **relative to its slice** while `_section_raw` seeks the **whole file**, so a fat binary read landed in the fat header's zero padding and disassembly came back as a wall of `add byte ptr [rax], al` (decoded `00 00`). `load_image` fixes both: `_resolve_binary` parses via `lief.MachO.parse` (a `FatBinary`), `_pick_slice` chooses one (**explicit `slice_index` → requested `arch` → host arch → first**), and `_build_sections` **adds the slice's `fat_offset` to every `raw_off`** so the seek lands in the chosen slice. Because `extract_strings` / `search.py` / `scan.py` map file offsets ↔ VA through `raw_off` and read the whole file, this one fix corrects them too (still one string engine, no second extractor). `Image.slices` lists them (`Slice`: index, arch, cpu label, fat_offset); `Image.slice_index` is the chosen one; thin/PE/ELF leave `slices` empty, `fat_offset` 0. CLI: `--slice N`; the TUI offers a per-slice picker under Binary and a `_switch_slice` reload.
+
 ### Function identity
 `Func` entries are not unique by address: two exports can share a VA (an MSVC constructor and `operator=`, aliased commands). The navigator is a `Tree`, but identity rides on **row index**, never address: `_apply_filter` keeps `self._rows` as the flat leaf list in tree order, and each leaf carries `data = <index into self._rows>` (group folders carry `data is None`). `_current()` reads the highlighted leaf's `data`. `func_at(va)` returns the last `Func` at that exact VA; `nearest_func(va)` returns the greatest `Func` at or below `va` (symbolizing arbitrary offsets).
 
@@ -90,7 +93,7 @@ deglyph.sh   self-bootstrapping launcher; deglyph.bat is the Windows equivalent
 `thunk_chain` (`xref.py`) resolves an exported wrapper to the function that does the work: it follows tail-`jmp` thunks and, for arg-marshalling wrappers, the last in-image `call`, but **stops at the first function with a body** (`_has_body`: an immediate memory store, or an immediate-into-register-then-`call` dispatch idiom). Without this stop the chain descends past the implementation into CRC/transport sub-helpers and the opcode is lost.
 
 ### Architecture drives the disassembler
-`Disassembler` maps `Arch` to a Capstone mode at construction. PE32 is `CS_MODE_32`, PE32+ is `CS_MODE_64`; a 32-bit DLL decoded in 64-bit mode produces plausible-looking garbage, so the arch must be correct. `load_image(..., arch=...)` overrides detection; the CLI exposes `--arch`.
+`Disassembler` maps `Arch` to a Capstone mode at construction. PE32 is `CS_MODE_32`, PE32+ is `CS_MODE_64`; a 32-bit DLL decoded in 64-bit mode produces plausible-looking garbage, so the arch must be correct. AArch64 has no sub-mode, so `Arch.ARM64` uses `CS_MODE_LITTLE_ENDIAN` (the bare endianness flag, value 0). `load_image(..., arch=...)` overrides detection; the CLI exposes `--arch`, and `--slice` for a fat Mach-O slice (see above).
 
 ### Value extraction has one string engine
 `re/strings.py` is the single extractor: `string_runs(data, *, min_len)` yields ASCII + UTF-16LE runs, and **`scan.py` consumes it too** (do not add a second extractor). `extract_strings(image)` maps runs to VA + section (Strings tab, `--strings`); `referenced_data(image, va)` resolves the strings / tables / pointer constants a function points at (x86 rip-relative / absolute operands and pointer immediates), returning `[]` on non-x86. The Strings tab list is lazy + cached in `_strings_cache` (reset in `_load_binary`).

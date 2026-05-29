@@ -5,6 +5,7 @@ Command-line entry point.
 
   deglyph <binary>                      open the interface
   deglyph <binary> --fmt PE --arch x64  override format / architecture
+  deglyph <binary> --slice N            pick a fat Mach-O slice (default: host arch)
   deglyph <binary> --list               print the function table and exit
   deglyph <binary> --analyze NAME       headless constant/CRC analysis of a function
 """
@@ -85,6 +86,12 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("binary", nargs="?", help="path to a PE / ELF / Mach-O object")
     ap.add_argument("--fmt", help="force container format (PE/ELF/MachO)")
     ap.add_argument("--arch", help="force architecture (x86/x64/arm/arm64)")
+    ap.add_argument(
+        "--slice",
+        type=int,
+        metavar="N",
+        help="select fat (universal) Mach-O slice by index (default: host arch)",
+    )
     ap.add_argument("--list", action="store_true", help="print functions and exit")
     ap.add_argument(
         "--analyze", metavar="NAME", help="headless analysis of one function"
@@ -165,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             _resolve_binary(args.binary),
             fmt=args.fmt,
             arch=arch,
+            slice_index=args.slice,
             do_list=args.list,
             analyze=args.analyze,
             strings=args.strings,
@@ -181,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         binary,
         fmt=args.fmt,
         arch=arch,
+        slice_index=args.slice,
         discover=not args.no_discover,
         welcome=binary is None,
     )
@@ -415,7 +424,16 @@ def _sbom_cli(argv: list[str]) -> int:
 
 
 def _headless(
-    path, *, fmt, arch, do_list, analyze, strings=False, discover=True, as_json=False
+    path,
+    *,
+    fmt,
+    arch,
+    slice_index=None,
+    do_list,
+    analyze,
+    strings=False,
+    discover=True,
+    as_json=False,
 ) -> int:
     from rich.console import Console
 
@@ -430,7 +448,7 @@ def _headless(
 
     c = Console()
     try:
-        img = load_image(path, fmt=fmt, arch=arch)
+        img = load_image(path, fmt=fmt, arch=arch, slice_index=slice_index)
     except Exception as e:
         if as_json:
             print(json.dumps({"error": f"load error: {e}"}))

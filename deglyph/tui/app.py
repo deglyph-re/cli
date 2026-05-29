@@ -140,6 +140,7 @@ _ITEM_FUNC = "func"
 _ITEM_STRING = "string"
 _ITEM_SECTION = "section"
 _ITEM_BINARY = "binary"
+_ITEM_SLICE = "slice"
 
 # Per-kind set of visible right-pane tabs. The Assistant tab (`tab-ai`) is
 # always visible and so does not appear in any list. When the selected item
@@ -155,7 +156,8 @@ _TABS_BY_KIND: dict[str, tuple[str, ...]] = {
     ),
     _ITEM_STRING: ("tab-info",),
     _ITEM_SECTION: ("tab-info",),
-    _ITEM_BINARY: ("tab-strings", "tab-info"),
+    _ITEM_SLICE: ("tab-info",),
+    _ITEM_BINARY: ("tab-map", "tab-strings", "tab-info"),
 }
 
 # Default tab the right pane switches to when an item of this kind is selected
@@ -164,6 +166,7 @@ _DEFAULT_TAB_BY_KIND: dict[str, str] = {
     _ITEM_FUNC: "tab-disasm",
     _ITEM_STRING: "tab-info",
     _ITEM_SECTION: "tab-info",
+    _ITEM_SLICE: "tab-info",
     _ITEM_BINARY: "tab-info",
 }
 
@@ -175,6 +178,7 @@ _ALL_TOGGLE_TABS = (
     "tab-analysis",
     "tab-pseudo",
     "tab-graph",
+    "tab-map",
     "tab-strings",
     "tab-info",
 )
@@ -880,6 +884,7 @@ class DeglyphApp(App):
         *,
         fmt: str | None = None,
         arch: Arch | None = None,
+        slice_index: int | None = None,
         discover: bool = True,
         welcome: bool = True,
     ):
@@ -887,6 +892,7 @@ class DeglyphApp(App):
         self._path = path
         self._fmt = fmt
         self._arch = arch
+        self._slice_index = slice_index
         self._discover = discover
         # show the welcome screen on launch
         self._welcome = welcome
@@ -902,6 +908,8 @@ class DeglyphApp(App):
         # Used by `_select_item` to restore the cursor after `_apply_filter`.
         self._string_nodes: dict[int, TreeNode] = {}
         self._section_nodes: dict[int, TreeNode] = {}
+        # fat Mach-O slice leaves, keyed by slice index
+        self._slice_nodes: dict[int, TreeNode] = {}
         self._binary_node: TreeNode | None = None
         self._filter = ""
         self._pending_highlight: int | None = None
@@ -982,6 +990,9 @@ class DeglyphApp(App):
                     with TabPane("Graph", id="tab-graph"):
                         with VerticalScroll(classes="pane-scroll"):
                             yield Static(id="graph", classes="pane")
+                    with TabPane("Map", id="tab-map"):
+                        with VerticalScroll(classes="pane-scroll"):
+                            yield Static(id="map", classes="pane")
                     # Info before Strings/Assistant: Textual's hide-tab auto-
                     # switch picks the next visible tab, and Info is the
                     # binary/section default that should win that race.
@@ -1050,7 +1061,12 @@ class DeglyphApp(App):
         to load or discard any saved work.
         """
         try:
-            self.image = load_image(self._path, fmt=self._fmt, arch=self._arch)
+            self.image = load_image(
+                self._path,
+                fmt=self._fmt,
+                arch=self._arch,
+                slice_index=self._slice_index,
+            )
             self.dis = Disassembler(self.image)
             # let the AI tools roam the image
             self._assistant.bind_image(self.image)
@@ -1346,6 +1362,7 @@ class DeglyphApp(App):
         self._va_nodes = {}
         self._string_nodes = {}
         self._section_nodes = {}
+        self._slice_nodes = {}
         self._binary_node = None
 
         self._build_binary_section(tree.root, flt)
@@ -1372,24 +1389,36 @@ class DeglyphApp(App):
         self._refresh_tabs_for(_ITEM_BINARY)
 
     def _build_binary_section(self, root: TreeNode, flt: str) -> None:
-        """Top-level Binary section: an overview leaf, plus a Sections subfolder.
+        """Top-level Binary section: an overview leaf, a Slices subfolder (fat
+        Mach-O only), and a Sections subfolder.
 
         Opens collapsed; an active search expands the folders so matches are
         visible without the user clicking through.
         """
         img = self.image
         match_name = not flt or _fuzzy(flt, os.path.basename(img.path))
+        slices = [s for s in img.slices if not flt or _fuzzy(flt, s.cpu)]
         sections = [
             (i, s) for i, s in enumerate(img.sections) if not flt or _fuzzy(flt, s.name)
         ]
         # If a filter excludes everything in this section, drop it entirely.
-        if flt and not match_name and not sections:
+        if flt and not match_name and not slices and not sections:
             return
         bin_node = root.add("Binary", expand=bool(flt))
         if match_name:
             label = Text(os.path.basename(img.path), style=GOLD)
             leaf = bin_node.add_leaf(label, data=(_ITEM_BINARY, None))
             self._binary_node = leaf
+        # Fat (universal) Mach-O: one leaf per architecture slice; the active
+        # slice carries a marker. Selecting another reloads the image on it.
+        if len(img.slices) > 1 and slices:
+            sl_root = bin_node.add(f"Slices ({len(img.slices)})", expand=bool(flt))
+            for sl in slices:
+                active = sl.index == img.slice_index
+                lbl = Text(("* " if active else "  ") + sl.cpu, style=GOLD)
+                lbl.append("  active" if active else "", style=DIM)
+                leaf = sl_root.add_leaf(lbl, data=(_ITEM_SLICE, sl.index))
+                self._slice_nodes[sl.index] = leaf
         if sections:
             sec_root = bin_node.add(f"Sections ({len(sections)})", expand=bool(flt))
             for idx, sec in sections:
@@ -1586,6 +1615,8 @@ class DeglyphApp(App):
             node = self._string_nodes.get(payload)
         elif kind == _ITEM_SECTION:
             node = self._section_nodes.get(payload)
+        elif kind == _ITEM_SLICE:
+            node = self._slice_nodes.get(payload)
         elif kind == _ITEM_BINARY:
             node = self._binary_node
         else:
@@ -1620,6 +1651,8 @@ class DeglyphApp(App):
             self._show_for_string(payload)
         elif kind == _ITEM_SECTION:
             self._show_for_section(payload)
+        elif kind == _ITEM_SLICE:
+            self._show_for_slice(payload)
         elif kind == _ITEM_BINARY:
             self._show_for_binary()
 
@@ -1641,11 +1674,23 @@ class DeglyphApp(App):
             return
         self._render_section_info(self.image.sections[idx])
 
+    def _show_for_slice(self, idx: int) -> None:
+        sl = next((s for s in self.image.slices if s.index == idx), None)
+        if sl is None:
+            return
+        # The active slice shows its own info; selecting another reloads onto it.
+        if idx == self.image.slice_index:
+            self._render_slice_info(sl)
+        else:
+            self._switch_slice(idx)
+
     def _show_for_binary(self) -> None:
         self._render_binary_info()
         active = self.query_one("#tabs", TabbedContent).active
         if active == "tab-strings":
             self._render_strings()
+        elif active == "tab-map":
+            self._render_map()
 
     def _refresh_tabs_for(self, kind: str) -> None:
         """Show/hide right-pane tabs for the selected item kind.
@@ -1754,9 +1799,15 @@ class DeglyphApp(App):
         elif kind == _ITEM_SECTION and active == "tab-info":
             if 0 <= payload < len(self.image.sections):
                 self._render_section_info(self.image.sections[payload])
+        elif kind == _ITEM_SLICE and active == "tab-info":
+            sl = next((s for s in self.image.slices if s.index == payload), None)
+            if sl is not None:
+                self._render_slice_info(sl)
         elif kind == _ITEM_BINARY:
             if active == "tab-strings":
                 self._render_strings()
+            elif active == "tab-map":
+                self._render_map()
             elif active == "tab-info":
                 self._render_binary_info()
 
@@ -1937,6 +1988,62 @@ class DeglyphApp(App):
             )
         self.query_one("#info", Static).update(t)
 
+    def _render_slice_info(self, sl) -> None:
+        """Info pane content for a fat-Mach-O slice leaf."""
+        img = self.image
+        active = sl.index == img.slice_index
+        t = Text()
+        t.append(f"SLICE  {sl.cpu}\n", style=GOLD)
+        t.append(f"  {'arch':<12}{sl.arch.value}\n", style=DIM)
+        t.append(f"  {'index':<12}{sl.index}\n", style=DIM)
+        t.append(f"  {'fat off':<12}{sl.fat_offset:#x}\n", style=DIM)
+        t.append(
+            f"  {'state':<12}{'active' if active else 'inactive'}\n",
+            style=GOLD if active else DIM,
+        )
+        if not active:
+            t.append("\nSelect this slice in the tree to load it.\n", style="#d9cbac")
+        self.query_one("#info", Static).update(t)
+
+    def _switch_slice(self, idx: int) -> None:
+        """Reload the binary on fat slice `idx` and rebuild the whole view.
+
+        Annotations are keyed per file path, shared across slices; renames ride
+        on VAs, which differ per slice (different code), so a switch starts the
+        slice's own view fresh while the saved sidecar stays intact.
+        """
+        if self.image is None or idx == self.image.slice_index:
+            return
+        cpu = next((s.cpu for s in self.image.slices if s.index == idx), str(idx))
+        # an explicit slice pick overrides any arch default for this session
+        self._arch = None
+        self._slice_index = idx
+        try:
+            self.image = load_image(self._path, fmt=self._fmt, slice_index=idx)
+            self.dis = Disassembler(self.image)
+            self._assistant.bind_image(self.image)
+        except Exception as e:
+            self.notify(f"Could not load slice {cpu}: {e}", severity="error")
+            return
+        # The new slice has its own functions / strings / nav; reset the
+        # per-slice view state so nothing from the prior slice leaks across.
+        self._strings_cache = None
+        self._nav_history = []
+        self._nav_pos = -1
+        self._set_header_title()
+        self._build_table()
+        self._set_status()
+        self._refresh_toolbar()
+        self._select_item((_ITEM_BINARY, None))
+        if self._discover and not getattr(self.image, "_discovered", False):
+            self._start_discovery_spinner()
+            self._discover_worker()
+        if self._strings_cache is None:
+            self._extract_strings_worker()
+        self.query_one("#status", Static).update(
+            Text(f" Loaded {cpu} slice", style=GOLD)
+        )
+
     def _render_string_info(self, s) -> None:
         """Info pane content for a String leaf: full text plus its location."""
         t = Text()
@@ -2116,6 +2223,13 @@ class DeglyphApp(App):
         if len(strings) > 2000:
             t.append(f"\n  {G['ellipsis']} {len(strings) - 2000} more\n", style=DIM)
         self.query_one("#strings", Static).update(t)
+
+    def _render_map(self) -> None:
+        """Whole-file content map: sections to scale, each with a byte-class strip."""
+        img = self.image
+        if img is None:
+            return
+        self.query_one("#map", Static).update(render.binary_map(img))
 
     def _render_pseudo(self, func) -> None:
         img = self.image
@@ -2885,6 +2999,7 @@ class DeglyphApp(App):
         "tab-analysis": "#analysis",
         "tab-pseudo": "#pseudo",
         "tab-graph": "#graph",
+        "tab-map": "#map",
         "tab-strings": "#strings",
         "tab-info": "#info",
         "tab-ai": "#ai-log",
@@ -3208,10 +3323,18 @@ def run(
     *,
     fmt: str | None = None,
     arch: Arch | None = None,
+    slice_index: int | None = None,
     discover: bool = True,
     welcome: bool = True,
 ) -> None:
-    DeglyphApp(path, fmt=fmt, arch=arch, discover=discover, welcome=welcome).run()
+    DeglyphApp(
+        path,
+        fmt=fmt,
+        arch=arch,
+        slice_index=slice_index,
+        discover=discover,
+        welcome=welcome,
+    ).run()
 
 
 def _poly_hint(poly: int) -> str | None:

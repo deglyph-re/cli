@@ -1276,3 +1276,51 @@ def test_ai_chat_persists_and_restores(host_binary, tmp_path, monkeypatch):
             assert "MARKER-Q" in log and "ANSWER-42" in log
 
     asyncio.run(second())
+
+
+def _fat_binary():
+    """A real fat Mach-O if one is available on this host, else None."""
+    import platform
+
+    if platform.system() != "Darwin":
+        return None
+    try:
+        import lief
+
+        fat = lief.MachO.parse("/bin/pwd")
+        if fat is not None and len(fat) > 1:
+            return "/bin/pwd"
+    except Exception:
+        pass
+    return None
+
+
+def test_fat_slice_picker_and_switch(tmp_path, monkeypatch):
+    fat = _fat_binary()
+    if fat is None:
+        pytest.skip("no fat Mach-O available")
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(fat, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            # the picker offers a leaf per slice
+            assert len(app.image.slices) >= 2
+            assert set(app._slice_nodes) == {s.index for s in app.image.slices}
+            start = app.image.slice_index
+            other = next(s.index for s in app.image.slices if s.index != start)
+
+            # the Binary item exposes a Map tab that renders the content map
+            app._select_item((_ITEM_BINARY, None))
+            await pilot.pause()
+            app.query_one("#tabs", TabbedContent).active = "tab-map"
+            await pilot.pause()
+            assert "CONTENT MAP" in _pane_text(app, "#map")
+
+            # selecting another slice reloads the image onto it
+            app._switch_slice(other)
+            await _settle_discovery(app, pilot)
+            assert app.image.slice_index == other
+
+    asyncio.run(scenario())

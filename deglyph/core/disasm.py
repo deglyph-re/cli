@@ -21,7 +21,8 @@ _ARCH_MODE = {
     Arch.X86: (capstone.CS_ARCH_X86, capstone.CS_MODE_32),
     Arch.X64: (capstone.CS_ARCH_X86, capstone.CS_MODE_64),
     Arch.ARM: (capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM),
-    Arch.ARM64: (capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM),
+    # AArch64 has no sub-mode; the endianness flag is the mode (LITTLE == 0).
+    Arch.ARM64: (capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN),
 }
 
 # Mnemonics that terminate a basic block / function tail

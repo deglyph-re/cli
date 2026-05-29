@@ -47,6 +47,12 @@ _UNICODE = {
     "chat": "",
     "search": "⌕",
     "menu": "≡",
+    # binary map: a filled block for the content strip, plus density shades
+    "block": "█",
+    "shade_full": "█",
+    "shade_mid": "▓",
+    "shade_low": "▒",
+    "shade_min": "░",
 }
 
 _ASCII = {
@@ -73,6 +79,11 @@ _ASCII = {
     "chat": "",
     "search": "/",
     "menu": "=",
+    "block": "#",
+    "shade_full": "#",
+    "shade_mid": "+",
+    "shade_low": ":",
+    "shade_min": ".",
 }
 
 # Font Awesome codepoints in the Nerd Font private-use area (written as escapes

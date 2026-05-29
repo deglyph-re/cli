@@ -78,6 +78,26 @@ class Func:
         return self.demangled or self.name
 
 
+@dataclass(slots=True)
+class Slice:
+    """One architecture slice of a fat (universal) Mach-O.
+
+    `index` is the slice's position in the fat header; `arch` is the decoded
+    architecture; `cpu` is LIEF's raw cpu_type label for display. `fat_offset`
+    is where the slice's Mach-O begins inside the whole file, the value added
+    to each section offset so a file seek lands in the right slice.
+    """
+
+    index: int
+    arch: Arch
+    cpu: str
+    fat_offset: int
+
+    @property
+    def label(self) -> str:
+        return self.cpu
+
+
 @dataclass
 class Image:
     path: str
@@ -89,6 +109,10 @@ class Image:
     funcs: list[Func] = field(default_factory=list)
     _lief: object = None
     _by_va: dict[int, Func] = field(default_factory=dict, repr=False)
+    # Fat (universal) Mach-O slices, if any; the chosen one is `slice_index`.
+    # Empty for a thin binary, PE, or ELF.
+    slices: list[Slice] = field(default_factory=list)
+    slice_index: int = 0
 
     # -- lookups -----------------------------------------------------------
     def section_at(self, va: int) -> Section | None:
@@ -205,8 +229,13 @@ def _flags(s) -> str:
     return out or "?"
 
 
-def _build_sections(b: Any, base: int) -> list[Section]:
-    """Section list with PE RVAs promoted to VAs; bad entries are skipped."""
+def _build_sections(b: Any, base: int, fat_offset: int = 0) -> list[Section]:
+    """Section list with PE RVAs promoted to VAs; bad entries are skipped.
+
+    `fat_offset` is the slice's start inside a fat Mach-O file; LIEF reports a
+    section `offset` relative to the slice, so add the fat base to land an
+    absolute file seek in the right slice (0 for thin / PE / ELF).
+    """
     out: list[Section] = []
     for s in b.sections:
         try:
@@ -219,7 +248,7 @@ def _build_sections(b: Any, base: int) -> list[Section]:
                     name=(s.name or "").rstrip("\x00") or "<unnamed>",
                     va=va,
                     size=int(getattr(s, "virtual_size", 0) or s.size),
-                    raw_off=int(s.offset),
+                    raw_off=int(s.offset) + fat_offset,
                     raw_size=int(s.size),
                     flags=_flags(s),
                 )
@@ -249,36 +278,97 @@ def _symbol_va(sym, img: Image) -> int | None:
     return val
 
 
-def load_image(path: str, *, fmt: str | None = None, arch: Arch | None = None) -> Image:
-    """Parse `path` with LIEF and build a uniform `Image`.
+def _macho_slices(path: str) -> tuple[list[Any], list[Slice]]:
+    """Parse a Mach-O as a fat container, returning its slices and metadata.
 
-    `fmt` / `arch` override auto-detection (used by the TUI's format picker).
-    Raises ValueError if the file cannot be parsed as a known object format.
+    Returns `([], [])` when the file is not a (multi-slice) Mach-O, so the
+    caller falls back to the plain `lief.parse` path. A thin Mach-O parses as a
+    one-entry FatBinary; only a genuine multi-slice file is treated as fat.
     """
-    if not os.path.isfile(path):
-        raise ValueError(f"not a file: {path}")
+    try:
+        fat = lief.MachO.parse(path)
+    except Exception:
+        return [], []
+    if fat is None or len(fat) <= 1:
+        return [], []
+    bins: list[Any] = []
+    slices: list[Slice] = []
+    for i in range(len(fat)):
+        m = fat.at(i)
+        bins.append(m)
+        cpu = str(getattr(m.header, "cpu_type", "")).split(".")[-1] or f"slice{i}"
+        slices.append(
+            Slice(
+                index=i,
+                arch=_detect_arch(m),
+                cpu=cpu,
+                fat_offset=int(getattr(m, "fat_offset", 0) or 0),
+            )
+        )
+    return bins, slices
 
+
+def _host_arch() -> Arch:
+    """The architecture of the machine deglyph is running on (best effort)."""
+    import platform
+
+    m = platform.machine().lower()
+    if m in ("arm64", "aarch64"):
+        return Arch.ARM64
+    if m in ("x86_64", "amd64", "x64"):
+        return Arch.X64
+    if m in ("i386", "i686", "x86"):
+        return Arch.X86
+    return Arch.UNKNOWN
+
+
+def _pick_slice(slices: list[Slice], arch: Arch | None) -> int:
+    """Choose a fat slice: an explicit arch, else the host arch, else the first.
+
+    An `arch` override wins when a slice matches it. Otherwise prefer the slice
+    matching the host machine so the user sees the code that actually runs here,
+    falling back to the first slice when nothing matches.
+    """
+    if arch is not None:
+        for s in slices:
+            if s.arch == arch:
+                return s.index
+    host = _host_arch()
+    for s in slices:
+        if s.arch == host:
+            return s.index
+    return slices[0].index
+
+
+def _resolve_binary(
+    path: str, arch: Arch | None, slice_index: int | None
+) -> tuple[Any, list[Slice], int, int]:
+    """Parse `path` and pick a slice: returns (lief_binary, slices, index, fat_off).
+
+    A fat Mach-O carries several architecture slices; `lief.parse` would hand
+    back only the first. Resolve the slices, pick one (explicit index, then the
+    requested arch, then the host arch, then the first), and report its fat
+    offset so the section reader seeks into that slice rather than the header.
+    A thin file returns an empty slice list and a zero fat offset.
+    """
+    fat_bins, slices = _macho_slices(path)
+    if slices:
+        chosen = slice_index if slice_index is not None else _pick_slice(slices, arch)
+        chosen = next((s.index for s in slices if s.index == chosen), slices[0].index)
+        return fat_bins[chosen], slices, chosen, slices[chosen].fat_offset
     # LIEF's parse() return is a format union with incomplete stubs; the loader
     # below is defensively wrapped, so treat the binary as untyped.
-    b: Any = lief.parse(path)
-    if b is None:
-        raise ValueError(f"LIEF could not parse {path!r} as a known binary format")
+    return lief.parse(path), [], 0, 0
 
-    # FORMATS.PE -> PE
-    detected_fmt = str(b.format).split(".")[-1]
-    use_fmt = fmt or detected_fmt
-    use_arch = arch or _detect_arch(b)
 
-    try:
-        base = int(b.imagebase)
-    except Exception:
-        base = 0
+def _collect_funcs(b: Any, img: Image, base: int) -> None:
+    """Populate `img.funcs` from the binary's exports, imports, symbols, entry.
 
-    img = Image(path=path, fmt=use_fmt, arch=use_arch, base=base, _lief=b)
-    img.sections = _build_sections(b, base)
-
-    # Exported functions
+    Each source is wrapped so one malformed table never aborts the others; an
+    address already claimed by an export is not re-added as a symbol/entry.
+    """
     seen: set[int] = set()
+    # Exported functions
     for f in b.exported_functions:
         try:
             va = int(f.address)
@@ -328,6 +418,49 @@ def load_image(path: str, *, fmt: str | None = None, arch: Arch | None = None) -
     except Exception:
         pass
 
+
+def load_image(
+    path: str,
+    *,
+    fmt: str | None = None,
+    arch: Arch | None = None,
+    slice_index: int | None = None,
+) -> Image:
+    """Parse `path` with LIEF and build a uniform `Image`.
+
+    `fmt` / `arch` override auto-detection (used by the TUI's format picker).
+    For a fat (universal) Mach-O, `slice_index` selects a slice directly; with
+    none given the host arch is preferred (then `arch`, then the first slice).
+    Raises ValueError if the file cannot be parsed as a known object format.
+    """
+    if not os.path.isfile(path):
+        raise ValueError(f"not a file: {path}")
+
+    b, slices, chosen, fat_offset = _resolve_binary(path, arch, slice_index)
+    if b is None:
+        raise ValueError(f"LIEF could not parse {path!r} as a known binary format")
+
+    # FORMATS.PE -> PE
+    detected_fmt = str(b.format).split(".")[-1]
+    use_fmt = fmt or detected_fmt
+    use_arch = arch or _detect_arch(b)
+
+    try:
+        base = int(b.imagebase)
+    except Exception:
+        base = 0
+
+    img = Image(
+        path=path,
+        fmt=use_fmt,
+        arch=use_arch,
+        base=base,
+        _lief=b,
+        slices=slices,
+        slice_index=chosen,
+    )
+    img.sections = _build_sections(b, base, fat_offset)
+    _collect_funcs(b, img, base)
     img.reindex()
     log.info(
         "loaded %s: %s/%s base=%#x, %d sections, %d functions",

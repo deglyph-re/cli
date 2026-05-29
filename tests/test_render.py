@@ -10,7 +10,7 @@ from __future__ import annotations
 from rich.style import Style
 
 from deglyph.core import Disassembler
-from deglyph.tui.render import disasm_text
+from deglyph.tui.render import binary_map, disasm_text
 
 
 def _click_actions(text):
@@ -44,3 +44,22 @@ def test_highlight_marks_line(code_image):
     insns = Disassembler(img).func(0x1000)
     _, mark = disasm_text(img, insns, highlight=0x1001)
     assert mark == 1
+
+
+def test_binary_map_lists_sections(code_image):
+    # A mostly-printable blob: the map names the section and renders a strip.
+    img = code_image(b"hello world, this is plain ascii text " * 4)
+    out = binary_map(img, width=20).plain
+    assert "CONTENT MAP" in out
+    assert ".text" in out
+    # the byte-class strip uses shade glyphs from the section's content
+    from deglyph.tui.glyphs import G
+
+    assert any(G[k] in out for k in ("shade_low", "shade_mid", "shade_full"))
+
+
+def test_binary_map_handles_unreadable_path(code_image):
+    img = code_image(b"\x90\x90\xc3")
+    img.path = "/no/such/file/at/all.bin"
+    out = binary_map(img).plain
+    assert "Cannot read file" in out
