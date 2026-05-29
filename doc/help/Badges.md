@@ -7,7 +7,7 @@ deglyph supports two kinds of README badge: a static one that links back to the 
 Paste this anywhere to show your project is scanned with deglyph:
 
 ```markdown
-[![Scanned with deglyph](https://img.shields.io/badge/scanned%20with-deglyph-f39a12?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIuMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNOCA0SDV2MTZoM00xNiA0aDN2MTZoLTNNMTAgOGw0IDQtNCA0Ii8+PC9zdmc+&logoColor=white&labelColor=24292e)](https://github.com/deglyph-re/cli)
+[![Scanned with deglyph](https://img.shields.io/badge/scanned%20with-deglyph-f39a12?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIuMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNOCA0SDV2MTZoM00xNiA0aDN2MTZoLTNNMTAgOGw0IDQtNCA0Ii8+PC9zdmc+&logoColor=white)](https://github.com/deglyph-re/cli)
 ```
 
 ## A live badge from a scan
