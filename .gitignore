@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+*.sarif
+
+# Binaries under analysis must never be committed (they are large and often
+# proprietary). The one exception is the committed CI fixture.
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+!samples/demo.exe

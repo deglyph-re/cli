@@ -1,0 +1,35 @@
+# Example consumer workflow: scan a release binary on every push and send the
+# findings to GitHub code scanning (Security -> Code scanning alerts).
+# Copy this into your project's .github/workflows/ and edit `path`.
+name: binary scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write # required to upload SARIF
+
+jobs:
+  deglyph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build your binary here, then point `path` at the artifact.
+      # - run: make release
+
+      - name: Scan with deglyph
+        uses: deglyph-re/cli@0.0.1
+        with:
+          path: build/app # file or directory
+          sarif: deglyph.sarif
+          fail-on: never # let code scanning gate; do not fail this step
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: deglyph.sarif

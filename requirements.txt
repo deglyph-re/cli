@@ -1,0 +1,10 @@
+# deglyph runtime dependencies — Author: Alex Spataru | GPLv3
+#
+# Runtime dependencies are declared in pyproject.toml ([project.dependencies]),
+# including the Anthropic SDK for the built-in AI assistant. This file installs
+# the package (and those dependencies) editable, so a plain
+#   pip install -r requirements.txt
+# stays in sync with the package metadata. Optional extras:
+#   pip install -e ".[demangle]"   # C++ symbol demangling
+#   pip install -e ".[dev]"        # pytest, ruff, mypy, black
+-e .
