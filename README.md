@@ -292,7 +292,7 @@ scanning. The same file lives at
 Add a static "scanned with deglyph" badge:
 
 ```markdown
-[![scanned with deglyph](https://img.shields.io/badge/scanned%20with-deglyph-orange)](https://github.com/deglyph-re/cli)
+[![Scanned with deglyph](https://img.shields.io/badge/scanned%20with-deglyph-f39a12?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIuMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNOCA0SDV2MTZoM00xNiA0aDN2MTZoLTNNMTAgOGw0IDQtNCA0Ii8+PC9zdmc+&logoColor=white&labelColor=24292e)](https://github.com/deglyph-re/cli)
 ```
 
 For a live badge that tracks your latest scan, `deglyph scan --format badge` writes a [shields.io endpoint](https://shields.io/badges/endpoint-badge) JSON your CI can publish and embed. See [Badges](https://deglyph.dev/help#badges) for the full walkthrough.
