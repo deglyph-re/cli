@@ -23,6 +23,9 @@ SAMPLE = os.path.join(os.path.dirname(__file__), "..", "samples", "demo.exe")
 def _capture(monkeypatch):
     buf = io.StringIO()
     monkeypatch.setattr(sys, "stdout", buf)
+    # Pin the Rich console width so a long checkout path can't wrap the header
+    # line mid-token (Rich falls back to 80 columns when stdout is not a tty).
+    monkeypatch.setenv("COLUMNS", "200")
     return buf
 
 
