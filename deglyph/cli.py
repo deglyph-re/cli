@@ -225,7 +225,7 @@ def _build_scan_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--format",
         dest="fmt_out",
-        choices=("text", "markdown", "html", "sarif", "json"),
+        choices=("text", "markdown", "html", "sarif", "json", "badge"),
         default="text",
         help="output format (default: text)",
     )
@@ -357,6 +357,8 @@ def _render_scan(results, fmt_out: str, *, version: str) -> str:
         return json.dumps(scanmod.to_sarif(results, version=version), indent=2)
     if fmt_out == "json":
         return json.dumps(scanmod.to_json(results, version=version), indent=2)
+    if fmt_out == "badge":
+        return json.dumps(scanmod.to_badge(results), indent=2)
     if fmt_out == "markdown":
         from . import report
 

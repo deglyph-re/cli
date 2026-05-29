@@ -19,7 +19,7 @@
 
 ## What deglyph is
 
-A terminal reverse-engineering tool for native binaries. It loads a PE, ELF, or Mach-O object, lists its functions in a searchable tree grouped by kind and name, follows exported wrappers to their real implementations, shows annotated disassembly, walks the call graph, and runs pattern detectors that recover structure facts (constants written to memory, constant call arguments, CRC/checksum routines) without a decompiler. Recovering a binary protocol's command codes and frame layout is one application; nothing in the tool is specific to it.
+A terminal tool for understanding native binaries. It loads a PE, ELF, or Mach-O object, lists its functions in a searchable tree grouped by kind and name, follows exported wrappers to their real implementations, shows annotated disassembly, walks the call graph, and runs pattern detectors that recover structure facts (constants written to memory, constant call arguments, CRC/checksum routines) without a decompiler. Recovering a binary protocol's command codes and frame layout is one application; nothing in the tool is specific to it.
 
 Stack: Python 3.10+, [LIEF](https://lief.re) (container parsing), [Capstone](https://www.capstone-engine.org) (disassembly), [Textual](https://textual.textualize.io) + [Rich](https://rich.readthedocs.io) (interface). GPLv3 licensed. Author: Alex Spataru.
 

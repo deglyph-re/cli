@@ -1,6 +1,6 @@
 # Output Formats
 
-`deglyph scan` renders its findings in five formats, selected with `--format`.
+`deglyph scan` renders its findings in six formats, selected with `--format`.
 Every format is built from the same finding list, so they stay consistent. Write
 to a file with `--output PATH`, or let the report go to standard output.
 
@@ -52,8 +52,19 @@ comment never goes blank and looks broken.
 A single self-contained HTML file with inline styles and no external assets, for
 publishing a scan as a browsable dashboard. User-supplied strings are escaped.
 
+## badge
+
+A [shields.io endpoint](https://shields.io/badges/endpoint-badge) object summarizing the run: `clean` in green, otherwise a worst-first count of findings colored by the worst level. Publish it and embed a live badge that tracks your latest scan.
+
+```bash
+deglyph scan ./app.exe --fail-on never --format badge --output deglyph.json
+```
+
+See [Badges](Badges.md) for the full publish-and-embed walkthrough.
+
 ## See also
 
 - [Scanning Binaries](Scanning.md): producing the findings.
 - [The GitHub Action](GitHub-Action.md): markdown comments and SARIF upload.
 - [Suppressing Findings](Suppressing-Findings.md): using JSON fingerprints.
+- [Badges](Badges.md): the `badge` format as a live README badge.

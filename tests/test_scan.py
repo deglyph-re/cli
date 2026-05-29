@@ -192,6 +192,25 @@ def test_sarif_document_shape(code_image):
     assert res["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "a.bin"
 
 
+def test_badge_clean_is_green():
+    badge = scan.to_badge([("a.bin", [])])
+    assert badge["schemaVersion"] == 1
+    assert badge["label"] == "deglyph"
+    assert badge["message"] == "clean" and badge["color"] == "brightgreen"
+
+
+def test_badge_counts_worst_first_and_colors_by_worst():
+    findings = [
+        scan.Finding("r/a", "warning", "m", "0x1"),
+        scan.Finding("r/b", "warning", "m", "0x2"),
+        scan.Finding("r/c", "error", "m", "0x3"),
+        scan.Finding("r/d", "note", "m", "0x4"),
+    ]
+    badge = scan.to_badge([("a.bin", findings)])
+    assert badge["message"] == "1 error, 2 warnings, 1 note"
+    assert badge["color"] == "red"
+
+
 # --- CLI integration over the committed demo binary -------------------------
 
 
@@ -221,6 +240,15 @@ def test_cli_scan_json_format(capsys):
     assert doc["tool"] == "deglyph"
     assert doc["summary"]["findings"] >= 1
     assert doc["files"][0]["findings"][0]["fingerprint"]
+
+
+@pytest.mark.skipif(not os.path.isfile(SAMPLE), reason="demo.exe not built")
+def test_cli_scan_badge_format(capsys):
+    main(["scan", SAMPLE, "--format", "badge", "--fail-on", "never"])
+    badge = json.loads(capsys.readouterr().out)
+    assert badge["schemaVersion"] == 1 and badge["label"] == "deglyph"
+    # the demo binary plants a secret, so the badge is not clean
+    assert badge["message"] != "clean"
 
 
 @pytest.mark.skipif(not os.path.isfile(SAMPLE), reason="demo.exe not built")

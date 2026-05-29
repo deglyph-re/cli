@@ -61,6 +61,10 @@ inputs:
     description: Write the markdown report to the Actions run summary (every run).
     required: false
     default: "true"
+  badge:
+    description: "Write a shields.io endpoint JSON summarizing the run to this path (empty = skip). Publish it and embed with https://img.shields.io/endpoint?url=<raw url>."
+    required: false
+    default: ""
   upload-sarif:
     description: "Upload the SARIF report to code scanning (Security tab). Requires security-events: write."
     required: false
@@ -145,6 +149,32 @@ runs:
         [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
         for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
         deglyph scan "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
+
+    # Per-run badge: write a shields.io endpoint JSON to the requested path.
+    # --fail-on never so a failing gate still produces it; if: always() so it
+    # runs after the gate fails. Publishing the file is the caller's step.
+    - if: ${{ always() && inputs.badge != '' }}
+      shell: bash
+      env:
+        DG_PATH: ${{ inputs.path }}
+        DG_BADGE: ${{ inputs.badge }}
+        DG_BASELINE: ${{ inputs.baseline }}
+        DG_ENTROPY: ${{ inputs.entropy }}
+        DG_CVE: ${{ inputs.cve }}
+        DG_NO_HARDEN: ${{ inputs.no-hardening }}
+        DG_NO_FP: ${{ inputs.no-fingerprint }}
+        DG_IGNORE: ${{ inputs.ignore }}
+        DG_IGNORE_FILE: ${{ inputs.ignore-file }}
+      run: |
+        args=("$DG_PATH" --fail-on never --format badge --output "$DG_BADGE")
+        [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
+        [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
+        [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
+        [ "$DG_CVE" = "true" ] && args+=(--cve)
+        [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
+        [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
+        for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
+        deglyph scan "${args[@]}"
 
     # Publish findings to the Security tab. always() so a failing gate still
     # uploads; the gating step exported the SARIF path it wrote.

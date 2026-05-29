@@ -1,6 +1,8 @@
-# deglyph
+# deglyph - Understand compiled binaries from your terminal
 
-**Open a compiled binary and understand what it does, all from your terminal.**
+[![PyPI version](https://img.shields.io/pypi/v/deglyph)](https://pypi.org/project/deglyph/)
+[![Python versions](https://img.shields.io/pypi/pyversions/deglyph)](https://pypi.org/project/deglyph/)
+[![CI](https://img.shields.io/github/actions/workflow/status/deglyph-re/cli/ci.yml?branch=main&label=CI)](https://github.com/deglyph-re/cli/actions/workflows/ci.yml)
 
 deglyph loads a PE, ELF, or Mach-O and recovers its functions, even when the binary
 exports nothing. From there you can read annotated disassembly, walk recursive call
@@ -284,6 +286,16 @@ stacking a new one per push. Use `fail-on` (`note` / `warning` / `error` / `neve
 to choose whether a finding fails the job; the copy above leaves gating to code
 scanning. The same file lives at
 [`examples/deglyph-scan.yml`](examples/deglyph-scan.yml).
+
+## Badges
+
+Add a static "scanned with deglyph" badge:
+
+```markdown
+[![scanned with deglyph](https://img.shields.io/badge/scanned%20with-deglyph-orange)](https://github.com/deglyph-re/cli)
+```
+
+For a live badge that tracks your latest scan, `deglyph scan --format badge` writes a [shields.io endpoint](https://shields.io/badges/endpoint-badge) JSON your CI can publish and embed. See [Badges](https://deglyph.dev/help#badges) for the full walkthrough.
 
 ## Keys
 

@@ -69,6 +69,7 @@ failing build still produces its report.
 | `path` | (required) | Binary or directory to scan |
 | `fail-on` | `warning` | `note` / `warning` / `error` / `never` |
 | `summary` | `true` | Write the markdown report to the run summary |
+| `badge` | (none) | Write a shields.io endpoint JSON to this path for a live badge |
 | `upload-sarif` | `false` | Upload SARIF to code scanning |
 | `comment` | `false` | Post a sticky PR comment |
 | `baseline` | (none) | A prior build to diff against |
@@ -86,3 +87,4 @@ A ready-to-copy workflow lives at `examples/deglyph-scan.yml` in the repository.
 - [Scanning Binaries](Scanning.md): the underlying command.
 - [Output Formats](Output-Formats.md): the SARIF and markdown reports.
 - [Suppressing Findings](Suppressing-Findings.md): the `ignore` inputs.
+- [Badges](Badges.md): the `badge` input as a live README badge.

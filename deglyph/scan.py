@@ -894,3 +894,36 @@ def worst_level(results: list[tuple[str, list[Finding]]]) -> str | None:
     if not levels:
         return None
     return max(levels, key=lambda lv: _LEVEL_RANK[lv])
+
+
+# shields.io color per worst level; a clean scan is green.
+_BADGE_COLOR = {"error": "red", "warning": "yellow", "note": "blue"}
+
+
+def to_badge(
+    results: list[tuple[str, list[Finding]]], *, label: str = "deglyph"
+) -> dict:
+    """A shields.io endpoint object summarizing a scan, for a per-run CI badge.
+
+    Publish the JSON somewhere with a stable raw URL (a committed file, a gist,
+    a gh-pages artifact) and render it with an endpoint badge:
+    `https://img.shields.io/endpoint?url=<raw url>`.
+    """
+    counts = Counter(f.level for _p, fs in results for f in fs)
+    worst = worst_level(results)
+    if worst is None:
+        message, color = "clean", "brightgreen"
+    else:
+        # Worst-first, nonzero levels only: "1 error, 2 warnings".
+        parts = [
+            f"{counts[lv]} {lv}" + ("" if counts[lv] == 1 else "s")
+            for lv in ("error", "warning", "note")
+            if counts.get(lv)
+        ]
+        message, color = ", ".join(parts), _BADGE_COLOR[worst]
+    return {
+        "schemaVersion": 1,
+        "label": label,
+        "message": message,
+        "color": color,
+    }
