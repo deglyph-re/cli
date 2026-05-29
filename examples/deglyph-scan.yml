@@ -1,5 +1,6 @@
-# Example consumer workflow: scan a release binary on every push and send the
-# findings to GitHub code scanning (Security -> Code scanning alerts).
+# Example consumer workflow: scan a release binary on every push and pull
+# request. Findings land in three places -- the Actions run summary, the
+# Security tab (code scanning), and a sticky PR comment.
 # Copy this into your project's .github/workflows/ and edit `path`.
 name: binary scan
 
@@ -10,7 +11,8 @@ on:
 
 permissions:
   contents: read
-  security-events: write # required to upload SARIF
+  security-events: write # upload-sarif -> code scanning
+  pull-requests: write # comment -> sticky PR comment
 
 jobs:
   deglyph:
@@ -25,11 +27,8 @@ jobs:
         uses: deglyph-re/cli@v1.0.0
         with:
           path: build/app # file or directory
-          sarif: deglyph.sarif
-          fail-on: never # let code scanning gate; do not fail this step
-
-      - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: deglyph.sarif
+          fail-on: warning # error | warning | note | never
+          upload-sarif: "true" # publish to the Security tab
+          comment: "true" # sticky PR comment with the report
+          # Suppress known findings, committed in version control:
+          ignore-file: .deglyphignore

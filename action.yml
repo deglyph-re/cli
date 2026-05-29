@@ -4,8 +4,13 @@
 #   - uses: deglyph-re/cli@v1.0.0
 #     with:
 #       path: build/app.exe
-#       sarif: deglyph.sarif
-#       comment: "true"   # post a sticky PR comment with the markdown report
+#       upload-sarif: "true"   # publish findings to the Security tab
+#       comment: "true"        # post a sticky PR comment with the markdown report
+#
+# A run-level summary is written to the Actions run page by default (summary).
+# Permissions the caller's job must grant for the optional features:
+#   upload-sarif: "true"  -> permissions: security-events: write
+#   comment: "true"       -> permissions: pull-requests: write
 name: deglyph scan
 description: Scan native binaries for hardening posture, secrets, libs, CVEs, risky imports, and drift.
 branding:
@@ -44,6 +49,22 @@ inputs:
     description: Skip third-party library fingerprinting.
     required: false
     default: "false"
+  ignore:
+    description: Suppress findings by rule id (comma/space separated; a trailing '/' ignores a category, e.g. "secret/credential-keyword, harden/unsigned").
+    required: false
+    default: ""
+  ignore-file:
+    description: "Path to a .deglyphignore suppression file (rule ids, categories, and fingerprint lines)."
+    required: false
+    default: ""
+  summary:
+    description: Write the markdown report to the Actions run summary (every run).
+    required: false
+    default: "true"
+  upload-sarif:
+    description: "Upload the SARIF report to code scanning (Security tab). Requires security-events: write."
+    required: false
+    default: "false"
   comment:
     description: When "true" and the event is a pull_request, post a sticky markdown comment.
     required: false
@@ -62,30 +83,75 @@ runs:
     - shell: bash
       run: pip install --upgrade deglyph
 
-    # Primary scan: gates the job, writes SARIF when requested.
-    - shell: bash
+    # Primary scan: gates the job, writes SARIF when requested or when an upload
+    # is asked for (a default temp path). The resolved path is exported so the
+    # upload step can find it even if this step fails the gate.
+    - id: scan
+      shell: bash
       # Inputs are passed via env (not interpolated into the script) to avoid injection.
       env:
         DG_PATH: ${{ inputs.path }}
         DG_BASELINE: ${{ inputs.baseline }}
         DG_FAIL_ON: ${{ inputs.fail-on }}
         DG_SARIF: ${{ inputs.sarif }}
+        DG_UPLOAD: ${{ inputs.upload-sarif }}
         DG_ENTROPY: ${{ inputs.entropy }}
         DG_CVE: ${{ inputs.cve }}
         DG_NO_HARDEN: ${{ inputs.no-hardening }}
         DG_NO_FP: ${{ inputs.no-fingerprint }}
+        DG_IGNORE: ${{ inputs.ignore }}
+        DG_IGNORE_FILE: ${{ inputs.ignore-file }}
       run: |
+        sarif="$DG_SARIF"
+        if [ -z "$sarif" ] && [ "$DG_UPLOAD" = "true" ]; then
+          sarif="${RUNNER_TEMP}/deglyph.sarif"
+        fi
+        echo "sarif=$sarif" >> "$GITHUB_OUTPUT"
         args=("$DG_PATH" --fail-on "$DG_FAIL_ON")
         [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
+        [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
         [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
-        if [ -n "$DG_SARIF" ]; then
-          deglyph scan "${args[@]}" --format sarif --output "$DG_SARIF"
+        for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
+        if [ -n "$sarif" ]; then
+          deglyph scan "${args[@]}" --format sarif --output "$sarif"
         else
           deglyph scan "${args[@]}"
         fi
+
+    # Run-level summary: append the markdown report to the Actions run page on
+    # every run (push and PR). --fail-on never so a failing gate still renders;
+    # if: always() so it runs even after the gating step fails the job.
+    - if: ${{ always() && inputs.summary == 'true' }}
+      shell: bash
+      env:
+        DG_PATH: ${{ inputs.path }}
+        DG_BASELINE: ${{ inputs.baseline }}
+        DG_ENTROPY: ${{ inputs.entropy }}
+        DG_CVE: ${{ inputs.cve }}
+        DG_NO_HARDEN: ${{ inputs.no-hardening }}
+        DG_NO_FP: ${{ inputs.no-fingerprint }}
+        DG_IGNORE: ${{ inputs.ignore }}
+        DG_IGNORE_FILE: ${{ inputs.ignore-file }}
+      run: |
+        args=("$DG_PATH" --fail-on never --format markdown)
+        [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
+        [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
+        [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
+        [ "$DG_CVE" = "true" ] && args+=(--cve)
+        [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
+        [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
+        for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
+        deglyph scan "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
+
+    # Publish findings to the Security tab. always() so a failing gate still
+    # uploads; the gating step exported the SARIF path it wrote.
+    - if: ${{ always() && inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif }}
 
     # Markdown report for the PR comment (only on pull_request events when
     # comment=true). Runs with --fail-on never so a failing scan still produces
@@ -100,13 +166,17 @@ runs:
         DG_CVE: ${{ inputs.cve }}
         DG_NO_HARDEN: ${{ inputs.no-hardening }}
         DG_NO_FP: ${{ inputs.no-fingerprint }}
+        DG_IGNORE: ${{ inputs.ignore }}
+        DG_IGNORE_FILE: ${{ inputs.ignore-file }}
       run: |
         args=("$DG_PATH" --fail-on never --format markdown --output "${RUNNER_TEMP}/deglyph-pr.md")
         [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
+        [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
         [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
+        for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
         deglyph scan "${args[@]}"
 
     - uses: actions/github-script@v7
