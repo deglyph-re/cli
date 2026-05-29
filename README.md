@@ -1,4 +1,4 @@
-# deglyph - Understand compiled binaries from your terminal
+# deglyph - Make sense of any binary
 
 [![PyPI version](https://img.shields.io/pypi/v/deglyph)](https://pypi.org/project/deglyph/)
 [![Python versions](https://img.shields.io/pypi/pyversions/deglyph)](https://pypi.org/project/deglyph/)
