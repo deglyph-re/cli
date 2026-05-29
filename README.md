@@ -100,7 +100,7 @@ of the assembly (x86 only, no type recovery), so keep the disassembly as the sou
 of truth when a detail matters.
 
 **Ask the assistant.** With `ANTHROPIC_API_KEY` set, press `i` to chat with Claude
-about the binary. It is **agentic**: ask "where does it validate the license / build
+about the binary. It is **agentic**: ask "where does it parse a header / build
 the frame / hit the network" and it calls read-only tools (find/disassemble/analyze/
 xrefs/search) to locate and explain the function itself, citing clickable addresses.
 The current function's disassembly is cached context; tool calls show live as it
@@ -173,7 +173,7 @@ deglyph path/to/library.dll
 The assistant ships with deglyph, so there is nothing extra to install. It stays
 quiet until you choose a model and give it a way to reach one. Pick whichever of
 the two routes below fits you, then open any function and press `i` to ask in
-plain language ("where does this validate the license?", "who calls this?"). The
+plain language ("where does this parse the header?", "who calls this?"). The
 assistant calls read-only tools to find the answer in the binary and cites the
 addresses, which stay clickable in its reply. It sends nothing until you ask.
 

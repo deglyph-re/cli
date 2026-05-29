@@ -42,7 +42,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   code), and keep a separate conversation per function (switching back resumes it).
   The assistant is **agentic**: it can call read-only tools (find/list functions,
   disassemble, pseudo-C, analyze, xrefs, search) to investigate the whole binary,
-  so you can ask "where does it validate the license / build the frame" and it
+  so you can ask "where does it parse a header / build the frame" and it
   locates and explains the function itself. Tool calls show live in the transcript.
 - Clickable branch and call targets in the disassembly view: clicking a target
   inside the image jumps to it (shares the `goto` navigation path).
