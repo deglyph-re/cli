@@ -81,7 +81,7 @@ def to_markdown(
                 continue
             lines.append(f"**{_LEVEL_LABELS[level]}** ({len(items)})")
             for f in items:
-                lines.append(f"- `{f.rule}` at `{f.where}` — {f.message}")
+                lines.append(f"- `{f.rule}` at `{f.where}`: {f.message}")
             lines.append("")
 
     return "\n".join(lines) + _footer_md()
