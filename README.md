@@ -262,7 +262,7 @@ jobs:
       # - run: make release
 
       - name: Scan with deglyph
-        uses: deglyph-re/cli@v1.0.0
+        uses: deglyph-re/cli@v1.1.0
         with:
           path: build/app   # file or directory
           sarif: deglyph.sarif
