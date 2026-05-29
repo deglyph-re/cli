@@ -1,16 +1,13 @@
-<div align="left">
-  <img src="doc/logo.svg" alt="deglyph" width="480">
-</div>
+# ![Application Icon for deglyph](./doc/icon-small.svg) deglyph
 
----
+**Open a compiled binary and understand what it does, all from your terminal.**
 
-**Read what a compiled binary actually does. In your terminal, no decompiler.**
-
-deglyph loads a PE, ELF, or Mach-O, recovers its functions (even when the binary
-exports nothing), and shows annotated disassembly, recursive call graphs, heuristic
-pseudo-C, and pattern detectors that surface the structure you would otherwise dig
-out by hand. Branch and call targets are clickable, your renames and notes persist 
-between sessions, and an optional AI assistant explains anything on demand.
+deglyph loads a PE, ELF, or Mach-O and recovers its functions, even when the binary
+exports nothing. From there you can read annotated disassembly, walk recursive call
+graphs, skim a heuristic pseudo-C view, and let pattern detectors surface the
+structure you would otherwise dig out by hand. Branch and call targets are clickable,
+your renames and notes stay with you between sessions, and an optional AI assistant is
+on hand to explain anything you select.
 
 ![deglyph displaying a function explanation using AI](doc/screenshot.svg)
 
@@ -96,10 +93,11 @@ hex preview. Pull the same string list headless with `deglyph BINARY --strings`
 strings, and immediate constants referenced anywhere in executable code (useful
 for locating a CRC polynomial or a magic value).
 
-**Read pseudo-C.** A heuristic, instruction-by-instruction C-like view of the
-selected function: registers as variables, `mov` as assignment, compares feeding
-the following conditional jump, calls and jumps as `name(...)` / `goto`. It is an
-annotation of the assembly, not a decompiler: x86 only, no type recovery.
+**Read pseudo-C.** A readable, line-by-line C-like view of the selected function:
+registers as variables, `mov` as assignment, compares feeding the following
+conditional jump, calls and jumps as `name(...)` / `goto`. It is a heuristic reading
+of the assembly (x86 only, no type recovery), so keep the disassembly as the source
+of truth when a detail matters.
 
 **Ask the assistant.** With `ANTHROPIC_API_KEY` set, press `i` to chat with Claude
 about the binary. It is **agentic**: ask "where does it validate the license / build
@@ -108,13 +106,11 @@ xrefs/search) to locate and explain the function itself, citing clickable addres
 The current function's disassembly is cached context; tool calls show live as it
 works. Replies render as markdown with the cited addresses still clickable, and
 each function's conversation is saved with your other annotations, so it resumes
-when you re-open the binary. Opt-in, sends nothing until you ask. It ships in the
-`ai` extra (included when you install with all extras, see below). Bring your own
-key, or `deglyph login` to use the
-hosted tier where the server runs the model for you. Not on Claude? The assistant
-also speaks any **OpenAI-compatible** endpoint (OpenAI, Azure, Groq, OpenRouter, or
-a local **Ollama / LM Studio**) via the command palette's "AI provider" entry, or
-`DEGLYPH_AI_PROVIDER=openai` with `DEGLYPH_AI_BASE_URL` / `_MODEL` / `_API_KEY`.
+when you re-open the binary. Opt-in, sends nothing until you ask. The assistant
+comes with every install; you only choose a model and add a key. Use Claude with
+your own key, or point it at any OpenAI-compatible endpoint, including a local
+Ollama or LM Studio. See [Set up the AI assistant](#set-up-the-ai-assistant)
+for the steps.
 
 **Scan for CI (`deglyph scan`).** A headless check for build pipelines: it reports
 embedded **secrets** (private keys, cloud/provider tokens, and credential-labeled
@@ -161,19 +157,54 @@ everything into it, so the only requirement on the host is Python 3.10 or newer.
 First launch prints `creating virtual environment...`, installs the
 dependencies, then opens the interface. Later launches start immediately.
 
-You can also install it as a package and use the `deglyph` command. The AI
-assistant (`anthropic`) ships as a runtime dependency, so a plain install has it.
-Add the `demangle` extra for C++ symbol demangling (`cxxfilt`):
+You can also install it as a package and use the `deglyph` command. A plain
+install has everything: the AI assistant (`anthropic`) and C++ symbol demangling
+(`cxxfilt`) are both runtime dependencies.
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -e ".[demangle]"
+pip install -e .
 deglyph path/to/library.dll
 ```
 
-A bare `pip install -e .` works too; C++ names just stay mangled until you add
-the `demangle` extra.
+## Set up the AI assistant
+
+The assistant ships with deglyph, so there is nothing extra to install. It stays
+quiet until you choose a model and give it a way to reach one. Pick whichever of
+the two routes below fits you, then open any function and press `i` to ask in
+plain language ("where does this validate the license?", "who calls this?"). The
+assistant calls read-only tools to find the answer in the binary and cites the
+addresses, which stay clickable in its reply. It sends nothing until you ask.
+
+**Use Claude with your own key.** Get a key from the
+[Anthropic console](https://console.anthropic.com/) and put it in your environment:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+deglyph path/to/library.dll      # press i on any function
+```
+
+The default model is `claude-opus-4-7`; set `DEGLYPH_MODEL` to use a different one.
+
+**Use another provider, or a local model.** The assistant also speaks any
+OpenAI-compatible endpoint: OpenAI, Azure, Groq, OpenRouter, DeepSeek, and a local
+[Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/). Open the command
+palette (`ctrl-p`), choose **AI provider**, and pick a provider, model, and base URL;
+the local providers fill in their own URL, so you only choose a model you have
+pulled. Your choice is remembered. The same settings are available as environment
+variables for headless or scripted setups:
+
+```bash
+export DEGLYPH_AI_PROVIDER=openai      # or groq, openrouter, deepseek, ollama, lmstudio
+export DEGLYPH_AI_BASE_URL=https://api.openai.com/v1
+export DEGLYPH_AI_MODEL=gpt-4o
+export DEGLYPH_AI_API_KEY=sk-...       # not needed for a local model
+```
+
+deglyph tells you when a key is missing and what to do about it. Two more
+knobs: `DEGLYPH_AI_TIMEOUT` (seconds per request, default 90) and
+`DEGLYPH_AI_MAX_ITERS` (how many tool steps the assistant may take, default 24).
 
 ## Command line
 
@@ -192,7 +223,6 @@ deglyph BINARY --nerd           # Font Awesome icons (needs a Nerd Font terminal
 deglyph scan PATH               # CI scan: secrets, risky imports, build drift
 deglyph scan PATH --sarif       # emit a SARIF 2.1.0 report for code scanning
 deglyph scan PATH --baseline OLD  # also report what changed since a prior build
-deglyph login TOKEN             # store a token for the hosted AI tier
 deglyph --version
 ```
 
@@ -295,17 +325,15 @@ deglyph/
              render.py   colorized disassembly and hexdump
              glyphs.py   Unicode / ASCII glyph set
              style.tcss  theme
-  ai.py      agentic assistant (BYO key or hosted); read-only tools over Image
+  ai.py      agentic assistant (bring your own key); read-only tools over Image
   scan.py    headless CI scanner: secrets, risky imports, build drift, SARIF
   store.py   per-user annotation sidecar (names, comments, bookmarks)
-  account.py token store for the optional hosted tier
-  cli.py     command-line entry point (interface, --list/--analyze, scan, login)
+  cli.py     command-line entry point (interface, --list/--analyze, scan)
 ```
 
 `core` and `re` have no dependency on the interface; they are usable as a library
-for headless analysis and are what the tests exercise. `ai.py` is fully open: the
-hosted path is a thin HTTP client to a server that runs the model and enforces
-entitlement, so nothing proprietary ships in this client.
+for headless analysis and are what the tests exercise. The full source is open;
+there is no closed-source fork.
 
 ## Tests
 

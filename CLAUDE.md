@@ -56,7 +56,7 @@ deglyph login <token>                 # store a hosted-AI token (Pro); logout cl
 
 # Development
 python3 -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"               # anthropic ships as a runtime dep; demangle is a separate extra
+pip install -e ".[dev]"               # anthropic + cxxfilt are runtime deps; dev adds test/lint tools
 pytest            # demo.exe-backed cases run in CI; host-binary cases skip if absent
 black deglyph tests
 ```

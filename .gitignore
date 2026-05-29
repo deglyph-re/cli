@@ -12,6 +12,9 @@ htmlcov/
 .DS_Store
 *.sarif
 
+# Private launch / business setup notes; never publish.
+LAUNCH.md
+
 # Binaries under analysis must never be committed (they are large and often
 # proprietary). The one exception is the committed CI fixture.
 *.exe
