@@ -13,11 +13,13 @@ which `to_sarif` / `to_text` render. Six checks:
   scan_cve         CVEs against detected library versions via osv.dev (opt-in)
   diff_baseline    functions and imports present here but not in a baseline build
 
-Public: Finding, scan_image, scan_file, iter_targets, to_sarif, to_text, RULES.
+Public: Finding, scan_image, scan_file, iter_targets, to_sarif, to_text, to_json,
+fingerprint_of, load_ignore_file, RULES.
 """
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import re
@@ -32,10 +34,18 @@ RULES: dict[str, tuple[str, str]] = {
     "secret/private-key": ("error", "Private key material embedded in the binary"),
     "secret/aws-access-key": ("error", "AWS access key id"),
     "secret/github-token": ("error", "GitHub access token"),
+    "secret/github-pat": ("error", "GitHub fine-grained personal access token"),
+    "secret/gitlab-pat": ("error", "GitLab personal access token"),
     "secret/slack-token": ("error", "Slack token"),
+    "secret/slack-webhook": ("warning", "Slack incoming webhook URL"),
     "secret/google-api-key": ("error", "Google API key"),
+    "secret/stripe-key": ("error", "Stripe secret key"),
+    "secret/npm-token": ("error", "npm access token"),
+    "secret/sendgrid-key": ("error", "SendGrid API key"),
+    "secret/openai-key": ("error", "OpenAI API key"),
+    "secret/telegram-token": ("warning", "Telegram bot token"),
     "secret/jwt": ("warning", "JSON Web Token"),
-    "secret/credential-keyword": ("warning", "String labeled as a credential"),
+    "secret/credential-keyword": ("warning", "Credential with an embedded value"),
     "secret/high-entropy": ("note", "High-entropy string (possible secret)"),
     "import/process-exec": ("warning", "Imports a process / command execution API"),
     "import/code-injection": ("warning", "Imports a code-injection API"),
@@ -97,37 +107,60 @@ def _char_classes(s: str) -> int:
 
 # --- secrets ----------------------------------------------------------------
 
-# High-precision provider formats, then a keyword rule for labeled credentials.
+# High-precision provider token formats. Each prefix/shape is specific enough
+# to fire on a real credential, not on incidental strings; the generic
+# credential rule below handles labeled secrets via a value check.
 _SECRET_RES: list[tuple[str, re.Pattern]] = [
     ("secret/private-key", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")),
     ("secret/aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("secret/github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
+    ("secret/github-pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{60,}\b")),
+    ("secret/gitlab-pat", re.compile(r"\bglpat-[A-Za-z0-9_\-]{20}\b")),
     ("secret/slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
+    (
+        "secret/slack-webhook",
+        re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_\-]+"),
+    ),
     ("secret/google-api-key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b")),
+    ("secret/stripe-key", re.compile(r"\b[rs]k_live_[0-9A-Za-z]{24,}\b")),
+    ("secret/npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
+    (
+        "secret/sendgrid-key",
+        re.compile(r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b"),
+    ),
+    ("secret/openai-key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{32,}\b")),
+    ("secret/telegram-token", re.compile(r"\b\d{8,10}:AA[A-Za-z0-9_\-]{32,}\b")),
     (
         "secret/jwt",
         re.compile(
             r"\beyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\b"
         ),
     ),
-    (
-        "secret/credential-keyword",
-        re.compile(
-            r"(?i)(?<![a-z])"
-            r"(?:api[_-]?key|secret(?:[_-]?key)?|passw(?:or)?d"
-            r"|access[_-]?key|client[_-]?secret|auth[_-]?token|bearer)"
-            r"(?![a-z])"
-        ),
-    ),
 ]
+
+# Credential keyword fragment shared by the assignment and embedded-token forms.
+_CRED_WORD = (
+    r"api[_-]?key|secret(?:[_-]?key)?|passw(?:or)?d"
+    r"|access[_-]?key|client[_-]?secret|auth[_-]?token"
+)
+_CRED_WORD_RE = re.compile(r"(?i)(?<![a-z])(?:" + _CRED_WORD + r")(?![a-z])")
+_CRED_ASSIGN_RE = re.compile(
+    r"(?i)(?<![a-z])(?:" + _CRED_WORD + r")(?![a-z])"
+    r"[\"']?\s*[:=]\s*[\"']?"
+    r"(?P<val>[^\s\"',;]{6,})"
+)
+# Characters that mark a value as a placeholder / template, not a real secret.
+_PLACEHOLDER_CHARS = frozenset("%{}$<>")
 
 
 def scan_secrets(image: Image, data: bytes, *, entropy: bool = False) -> list[Finding]:
     """Find embedded credentials in the binary's string table.
 
-    Provider regexes and the credential-keyword rule are always on. The
-    entropy catch-all is opt-in: on native binaries it fires on build paths and
-    mangled symbol names, so it is off by default to keep the report precise.
+    Provider regexes and the credential rule are always on. The credential rule
+    requires an actual value (assigned or embedded in a value-shaped token), so
+    a bare keyword (a struct field, an env-var name, a scheme word) is not a
+    finding. The entropy catch-all is opt-in: on native binaries it fires on
+    build paths and mangled symbol names, so it is off by default.
     """
     out: list[Finding] = []
     for off, _enc, text in string_runs(data, min_len=6):
@@ -137,6 +170,9 @@ def scan_secrets(image: Image, data: bytes, *, entropy: bool = False) -> list[Fi
                 out.append(_secret_finding(image, rule, off, text))
                 matched = True
                 break
+        if not matched and _credential_evidence(text):
+            out.append(_secret_finding(image, "secret/credential-keyword", off, text))
+            matched = True
         if matched or not entropy:
             continue
         # Entropy catch-all over opaque, blob-like tokens (no path/symbol noise).
@@ -145,6 +181,45 @@ def scan_secrets(image: Image, data: bytes, *, entropy: bool = False) -> list[Fi
                 out.append(_secret_finding(image, "secret/high-entropy", off, tok))
                 break
     return out
+
+
+def _alnum_classes(v: str) -> int:
+    # Count upper / lower / digit only; punctuation does not make a value secret.
+    return sum(
+        (
+            any(c.isupper() for c in v),
+            any(c.islower() for c in v),
+            any(c.isdigit() for c in v),
+        )
+    )
+
+
+def _looks_like_secret_value(v: str, *, min_classes: int) -> bool:
+    # A real secret value is long, mixes character cases / digits, and is not a
+    # path or a format template. Counting only alnum classes keeps SCREAMING_CASE
+    # constants, dictionary words with stray punctuation, and mangled symbols out.
+    if len(v) < 8 or len(set(v)) <= 2:
+        return False
+    if any(c in _PLACEHOLDER_CHARS for c in v) or any(c in v for c in "/\\"):
+        return False
+    return _alnum_classes(v) >= min_classes
+
+
+def _credential_evidence(text: str) -> bool:
+    """True when `text` carries a credential value, not just a keyword.
+
+    Two shapes count: a credential keyword assigned a non-trivial value
+    (`password=hunter2hunter2`), or a keyword embedded in a single value-shaped
+    token (`S3cr3t-demo-API-key-do-not-ship`). A bare keyword word (a struct
+    field, an env-var name, a scheme like `Bearer `) is not enough.
+    """
+    m = _CRED_ASSIGN_RE.search(text)
+    if m and _looks_like_secret_value(m.group("val"), min_classes=2):
+        return True
+    for tok in text.split():
+        if _CRED_WORD_RE.search(tok) and _looks_like_secret_value(tok, min_classes=3):
+            return True
+    return False
 
 
 def _looks_high_entropy(tok: str) -> bool:
@@ -329,7 +404,9 @@ def _hardening_pe(image: Image, b) -> list[Finding]:
         except Exception:
             out.append(_h("harden/no-safeseh"))
 
-    if not _has_stack_canary(image):
+    # A stripped release PE carries no canary symbol; the load configuration's
+    # security cookie is the authoritative /GS signal.
+    if not _has_stack_canary(image) and not _pe_has_security_cookie(b):
         out.append(_h("harden/no-stack-canary"))
 
     if not _pe_is_signed(b):
@@ -394,6 +471,16 @@ def _has_stack_canary(image: Image) -> bool:
         if bare in _CANARY_SYMBOLS or ("_" + bare) in _CANARY_SYMBOLS:
             return True
     return False
+
+
+def _pe_has_security_cookie(b) -> bool:
+    # /GS writes a non-zero VA into the load config's security_cookie field;
+    # it survives symbol stripping, unlike the __security_cookie symbol.
+    try:
+        lc = b.load_configuration
+        return int(getattr(lc, "security_cookie", 0) or 0) != 0
+    except Exception:
+        return False
 
 
 def _pe_is_signed(b) -> bool:
@@ -556,6 +643,50 @@ def diff_baseline(image: Image, baseline: Image) -> list[Finding]:
 # --- orchestration ----------------------------------------------------------
 
 
+def _is_ignored(rule: str, ignore: set[str]) -> bool:
+    # Exact rule id, or a category prefix when the token ends in '/'
+    # (e.g. 'secret/' suppresses every secret/* rule).
+    if rule in ignore:
+        return True
+    return any(tok.endswith("/") and rule.startswith(tok) for tok in ignore)
+
+
+def fingerprint_of(f: Finding) -> str:
+    """Stable content hash of a finding, for per-finding suppression.
+
+    Keyed on rule + message (the message carries the offending string / symbol),
+    not the offset, so the same finding in a moved binary keeps its fingerprint.
+    """
+    digest = hashlib.sha1(f"{f.rule}|{f.message}".encode("utf-8", "replace"))
+    return digest.hexdigest()[:12]
+
+
+def load_ignore_file(path: str) -> tuple[set[str], set[str]]:
+    """Parse a `.deglyphignore` into (rule tokens, fingerprints).
+
+    One token per line; `#` starts a comment. A `fingerprint:` / `fp:` prefix
+    suppresses a single finding by its hash; any other token is a rule id or a
+    category prefix, matched exactly as `--ignore` does. A missing or unreadable
+    file yields empty sets, so discovery is best-effort.
+    """
+    rules: set[str] = set()
+    fps: set[str] = set()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                low = line.lower()
+                if low.startswith(("fingerprint:", "fp:")):
+                    fps.add(line.split(":", 1)[1].strip())
+                else:
+                    rules.add(line)
+    except OSError:
+        pass
+    return rules, fps
+
+
 def _off_to_va(image: Image, off: int) -> int | None:
     for s in image.sections:
         if s.raw_size and s.raw_off <= off < s.raw_off + s.raw_size:
@@ -571,13 +702,17 @@ def scan_image(
     hardening: bool = True,
     fingerprint: bool = True,
     cve: bool = False,
+    ignore: set[str] | None = None,
+    ignore_fp: set[str] | None = None,
 ) -> list[Finding]:
     """Run every check over a loaded image and return the merged findings.
 
     `hardening` and `fingerprint` default on (high signal, low noise). `cve`
     defaults off because it issues network requests to osv.dev; enabling it
     after a fingerprint pass surfaces known vulnerabilities against detected
-    library versions.
+    library versions. `ignore` drops findings by rule (exact id, or a category
+    prefix ending in '/') and `ignore_fp` by per-finding fingerprint, so the
+    report and the exit code agree.
     """
     with open(image.path, "rb") as fh:
         data = fh.read()
@@ -597,6 +732,10 @@ def scan_image(
         findings += scan_cve(lib_hits)
     if baseline is not None:
         findings += diff_baseline(image, baseline)
+    if ignore:
+        findings = [f for f in findings if not _is_ignored(f.rule, ignore)]
+    if ignore_fp:
+        findings = [f for f in findings if fingerprint_of(f) not in ignore_fp]
     findings.sort(key=lambda f: (-_LEVEL_RANK[f.level], f.rule, f.off or 0))
     return findings
 
@@ -611,6 +750,8 @@ def scan_file(
     hardening: bool = True,
     fingerprint: bool = True,
     cve: bool = False,
+    ignore: set[str] | None = None,
+    ignore_fp: set[str] | None = None,
 ) -> list[Finding]:
     img = load_image(path, fmt=fmt, arch=arch)
     base = load_image(baseline, fmt=fmt, arch=arch) if baseline else None
@@ -621,6 +762,8 @@ def scan_file(
         hardening=hardening,
         fingerprint=fingerprint,
         cve=cve,
+        ignore=ignore,
+        ignore_fp=ignore_fp,
     )
 
 
@@ -654,6 +797,46 @@ def to_text(results: list[tuple[str, list[Finding]]]) -> str:
         total += len(findings)
     lines.append(f"\n{total} finding(s) across {len(results)} file(s)")
     return "\n".join(lines)
+
+
+def to_json(results: list[tuple[str, list[Finding]]], *, version: str = "0") -> dict:
+    """Machine-readable findings for jq / custom gates / other tooling.
+
+    Each finding carries its `fingerprint` (the value a `.deglyphignore`
+    `fingerprint:` line suppresses); `summary` totals by level for a quick gate.
+    """
+    levels = [f.level for _p, fs in results for f in fs]
+    counts = Counter(levels)
+    files = [
+        {
+            "path": path.replace("\\", "/"),
+            "findings": [
+                {
+                    "rule": f.rule,
+                    "level": f.level,
+                    "message": f.message,
+                    "where": f.where,
+                    "offset": f.off,
+                    "length": f.length,
+                    "fingerprint": fingerprint_of(f),
+                }
+                for f in findings
+            ],
+        }
+        for path, findings in results
+    ]
+    return {
+        "tool": "deglyph",
+        "version": version,
+        "summary": {
+            "files": len(results),
+            "findings": len(levels),
+            "error": counts.get("error", 0),
+            "warning": counts.get("warning", 0),
+            "note": counts.get("note", 0),
+        },
+        "files": files,
+    }
 
 
 def to_sarif(results: list[tuple[str, list[Finding]]], *, version: str = "0") -> dict:

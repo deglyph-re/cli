@@ -209,11 +209,8 @@ def _account_cli(cmd: str, argv: list[str]) -> int:
     return 0
 
 
-def _scan_cli(argv: list[str]) -> int:
-    """`deglyph scan` - hardening / secret / lib / import / drift scan for CI gating."""
-    from . import __version__
-    from . import scan as scanmod
-
+def _build_scan_parser() -> argparse.ArgumentParser:
+    """The argument parser for `deglyph scan` (the subcommand dispatched in main)."""
     ap = argparse.ArgumentParser(
         prog="deglyph scan",
         description=(
@@ -228,7 +225,7 @@ def _scan_cli(argv: list[str]) -> int:
     ap.add_argument(
         "--format",
         dest="fmt_out",
-        choices=("text", "markdown", "html", "sarif"),
+        choices=("text", "markdown", "html", "sarif", "json"),
         default="text",
         help="output format (default: text)",
     )
@@ -263,6 +260,20 @@ def _scan_cli(argv: list[str]) -> int:
         help="query osv.dev for CVEs against detected libraries (network)",
     )
     ap.add_argument(
+        "--ignore",
+        action="append",
+        metavar="RULE",
+        help=(
+            "suppress findings by rule id (repeatable, or comma-separated); a "
+            "trailing '/' ignores a whole category, e.g. --ignore secret/"
+        ),
+    )
+    ap.add_argument(
+        "--ignore-file",
+        metavar="PATH",
+        help="suppression file (default: .deglyphignore in the working directory)",
+    )
+    ap.add_argument(
         "--fail-on",
         choices=("note", "warning", "error", "never"),
         default="warning",
@@ -270,10 +281,37 @@ def _scan_cli(argv: list[str]) -> int:
     )
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--debug", action="store_true")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def _collect_ignores(args, scanmod) -> tuple[set[str], set[str]]:
+    """Merge `--ignore` tokens with a `.deglyphignore` into (rules, fingerprints)."""
+    # --ignore is repeatable and each value may be comma-separated.
+    ignore = {
+        tok.strip()
+        for chunk in (args.ignore or [])
+        for tok in chunk.split(",")
+        if tok.strip()
+    }
+    # Layer a .deglyphignore (explicit --ignore-file, else CWD) on top.
+    ignore_fp: set[str] = set()
+    ignore_path = args.ignore_file or os.path.join(os.getcwd(), ".deglyphignore")
+    if args.ignore_file or os.path.isfile(ignore_path):
+        file_rules, ignore_fp = scanmod.load_ignore_file(ignore_path)
+        ignore |= file_rules
+    return ignore, ignore_fp
+
+
+def _scan_cli(argv: list[str]) -> int:
+    """`deglyph scan` - hardening / secret / lib / import / drift scan for CI gating."""
+    from . import __version__
+    from . import scan as scanmod
+
+    args = _build_scan_parser().parse_args(argv)
     _setup_logging(verbose=args.verbose, debug=args.debug)
 
     fmt_out = "sarif" if args.sarif else args.fmt_out
+    ignore, ignore_fp = _collect_ignores(args, scanmod)
 
     arch = _arch(args.arch)
     results: list[tuple[str, list]] = []
@@ -288,6 +326,8 @@ def _scan_cli(argv: list[str]) -> int:
                 hardening=not args.no_hardening,
                 fingerprint=not args.no_fingerprint,
                 cve=args.cve,
+                ignore=ignore,
+                ignore_fp=ignore_fp,
             )
         # one unreadable file should not abort the scan
         except Exception as e:
@@ -315,6 +355,8 @@ def _render_scan(results, fmt_out: str, *, version: str) -> str:
 
     if fmt_out == "sarif":
         return json.dumps(scanmod.to_sarif(results, version=version), indent=2)
+    if fmt_out == "json":
+        return json.dumps(scanmod.to_json(results, version=version), indent=2)
     if fmt_out == "markdown":
         from . import report
 

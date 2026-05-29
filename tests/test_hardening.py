@@ -34,6 +34,44 @@ def test_canary_symbol_detection(code_image):
     assert scan._has_stack_canary(img2) is False
 
 
+def test_pe_security_cookie_helper():
+    class _LC:
+        security_cookie = 0x14001A000
+
+    class _Bin:
+        load_configuration = _LC()
+
+    assert scan._pe_has_security_cookie(_Bin()) is True
+    _LC.security_cookie = 0
+    assert scan._pe_has_security_cookie(_Bin()) is False
+
+
+def test_pe_canary_detected_via_load_config(code_image):
+    # A stripped release PE (X64 fixture, no canary symbol) still proves /GS via
+    # the load-config cookie, so no-stack-canary must not fire.
+    img = code_image(bytes.fromhex("c3"))
+
+    class _LC:
+        security_cookie = 0x14001A000
+        se_handler_count = 0
+
+    class _OH:
+        # DYNAMIC_BASE | NX_COMPAT | GUARD_CF | HIGH_ENTROPY_VA -> all hardened
+        dll_characteristics = 0x4160
+
+    class _Bin:
+        optional_header = _OH()
+        load_configuration = _LC()
+        signatures = []
+
+    rules = _rules(scan._hardening_pe(img, _Bin()))
+    assert "harden/no-stack-canary" not in rules
+
+    # With no cookie and no symbol, the warning fires as before.
+    _LC.security_cookie = 0
+    assert "harden/no-stack-canary" in _rules(scan._hardening_pe(img, _Bin()))
+
+
 def test_macho_pie_helper_reads_flags():
     class _Hdr:
         flags = 0x200000
