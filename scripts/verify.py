@@ -178,9 +178,15 @@ def _mask(line: str) -> str:
     return line
 
 
+def _is_developer_doc(path: Path) -> bool:
+    """Developer files exempt from the ASCII-only rule: CLAUDE.md and its
+    extracted reference under doc/claude/ (Sub-Documentation in CLAUDE.md)."""
+    return path.name == "CLAUDE.md" or path.parent.name == "claude"
+
+
 def scan_markdown(path: Path, *, user_facing: bool) -> list[Finding]:
-    """Scan one Markdown file. `user_facing` enables the ASCII rule (CLAUDE.md is
-    a developer file and is exempt from ASCII-only, like Serial Studio's)."""
+    """Scan one Markdown file. `user_facing` enables the ASCII rule (CLAUDE.md
+    and doc/claude/ are developer files, exempt from ASCII-only)."""
     out: list[Finding] = []
     try:
         raw = path.read_text(encoding="utf-8")
@@ -538,7 +544,7 @@ def main(argv: list[str]) -> int:
     md_files, py_files = iter_files(targets)
     findings: list[Finding] = []
     for p in md_files:
-        findings += scan_markdown(p, user_facing=(p.name != "CLAUDE.md"))
+        findings += scan_markdown(p, user_facing=not _is_developer_doc(p))
     for p in py_files:
         findings += scan_python(p)
 

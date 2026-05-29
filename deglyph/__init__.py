@@ -9,6 +9,6 @@ patterns. Backed by LIEF (container parsing) and Capstone (disassembly).
 Author: Alex Spataru
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "Alex Spataru"
 __all__ = ["__version__", "__author__"]
