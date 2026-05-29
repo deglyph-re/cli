@@ -6,6 +6,41 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0]
+
+### Added
+- Secret scanning: a high-precision provider-token catalog on top of the
+  existing rules, covering GitHub fine-grained PATs, GitLab PATs, Slack
+  webhooks, Stripe, npm, SendGrid, OpenAI, and Telegram tokens.
+- `deglyph scan --format json`: a flat, machine-readable findings list with a
+  level-count summary and a stable per-finding fingerprint, for `jq` and custom
+  gates.
+- Finding suppression: `--ignore RULE` (repeatable; a trailing `/` suppresses a
+  whole category) and a `.deglyphignore` file (auto-discovered, or
+  `--ignore-file PATH`) that suppresses by rule, category, or finding
+  fingerprint. Suppressed findings are dropped before the exit code is computed.
+- GitHub Action: writes the Markdown report to the run summary on every run,
+  optionally uploads SARIF to code scanning (the Security tab, `upload-sarif`),
+  and accepts `ignore` / `ignore-file` inputs. The summary and upload steps run
+  even when the gate fails the job.
+- A JSON-indexed help manual under `doc/help/` (`help.json` plus categorized
+  Markdown pages), rendered by the project website's documentation page.
+
+### Changed
+- The generic credential rule (`secret/credential-keyword`) now requires
+  evidence of an actual value (an assignment, or a value-shaped token), so a
+  bare keyword (a struct field, an environment-variable name, a format
+  placeholder, a mangled symbol) no longer fires. This removes the large
+  majority of false positives on real binaries.
+
+### Fixed
+- PE stack-canary detection no longer false-reports `harden/no-stack-canary` on
+  a stripped release MSVC build: it now also reads the load configuration's
+  security cookie, which `/GS` sets even when the `__security_cookie` symbol is
+  stripped.
+
+## [1.0.0]
+
 ### Added
 - About dialog (`F1` / `?`): version, author, repository link, and license.
 - PE COFF symbol names: functions in mingw/debug-built PEs now resolve to their
@@ -80,5 +115,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wrapper-to-implementation thunk resolution, call-graph cross-references,
   immediate-store / call-argument / CRC-loop detectors, and the Textual TUI.
 
-[Unreleased]: https://github.com/alex-spataru/deglyph/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/alex-spataru/deglyph/releases/tag/v0.1.0
+[Unreleased]: https://github.com/deglyph-re/cli/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/deglyph-re/cli/releases/tag/v1.1.0
+[1.0.0]: https://github.com/deglyph-re/cli/releases/tag/v1.0.0
+[0.1.0]: https://github.com/deglyph-re/cli/releases/tag/v0.1.0
