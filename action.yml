@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Thin GitHub Action wrapper around `deglyph scan`.
 # Usage in a consumer repo:
-#   - uses: deglyph-re/cli@0.0.1
+#   - uses: deglyph-re/cli@v0.0.1
 #     with:
 #       path: build/app.exe
 #       sarif: deglyph.sarif
