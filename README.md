@@ -1,4 +1,4 @@
-# ![Application Icon for deglyph](./doc/icon-small.svg) deglyph
+# ![Application Icon for deglyph](https://raw.githubusercontent.com/deglyph-re/cli/main/doc/icon-small.png) deglyph
 
 **Open a compiled binary and understand what it does, all from your terminal.**
 
@@ -9,7 +9,7 @@ structure you would otherwise dig out by hand. Branch and call targets are click
 your renames and notes stay with you between sessions, and an optional AI assistant is
 on hand to explain anything you select.
 
-![deglyph displaying a function explanation using AI](doc/screenshot.svg)
+![deglyph displaying a function explanation using AI](https://raw.githubusercontent.com/deglyph-re/cli/main/doc/screenshot.png)
 
 ## Who it's for
 
