@@ -149,7 +149,9 @@ def function_insns(image: Image, va: int, *, max_insns: int = _MAX_INSNS) -> lis
     sensitive detectors (CRC loops, call-arg liveness) behaving as before there.
     """
     boundary = sorted(f.va for f in image.funcs)
-    return function_cfg(image, va, boundary=boundary, max_insns=max_insns).instructions()
+    return function_cfg(
+        image, va, boundary=boundary, max_insns=max_insns
+    ).instructions()
 
 
 def _decode_block(dis: Disassembler, start: int, limit: int, budget: int) -> BasicBlock:

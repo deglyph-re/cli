@@ -177,11 +177,7 @@ class Insn:
                 elif op.type == _OP_MEM:
                     mem = op.mem
                     base = cs.reg_name(mem.base) if mem.base else None
-                    index = (
-                        cs.reg_name(mem.index)
-                        if getattr(mem, "index", 0)
-                        else None
-                    )
+                    index = cs.reg_name(mem.index) if getattr(mem, "index", 0) else None
                     out.append(
                         Operand(
                             "mem",

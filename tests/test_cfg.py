@@ -19,9 +19,7 @@ def test_early_return_reaches_both_arms(code_image):
     assert cond.kind == "cond"
     assert set(cond.successors) == {0x1006, 0x1009}
     # both arms end in a ret, and nothing was left undecoded
-    assert all(
-        b.kind == "ret" for b in cfg.blocks if b.start in (0x1006, 0x1009)
-    )
+    assert all(b.kind == "ret" for b in cfg.blocks if b.start in (0x1006, 0x1009))
     assert cfg.gaps == []
 
 

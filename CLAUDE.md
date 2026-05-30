@@ -60,9 +60,9 @@ deglyph/
   core/      image.py    LIEF -> Image: base, sections, Func list (export/symbol/import/entry)
              disasm.py   Capstone wrapper: arch map, linear func disasm, thunk follow, callees
   re/        search.py   image-wide byte (?? wildcards) / string (ascii+utf16) / immediate search
-             strings.py  value extraction: extract_strings (image-wide) + referenced_data (per-func)
-             xref.py     callers_of (cached whole-image index), callees_of, thunk -> impl chain, call_tree
-             patterns.py immediate_stores, call_immediate_args, detect_crc_loops, constants
+             strings.py  value extraction: extract_strings (mapped-literals default; ascii/utf-8/utf-16le; category) + referenced_data (per-func, incl. pointer tables)
+             xref.py     callers_of + data_xrefs_to / xrefs_to (cached whole-image code+data index), callees_of, thunk -> impl chain, call_tree
+             patterns.py immediate_stores / call_immediate_args / detect_crc_loops / constants; every hit carries an Evidence (confidence/reasons/caveats/support)
              pseudo.py   heuristic x86-only pseudo-C (linear annotation, not a decompiler)
              discover.py sub_<va> discovery from unwind tables + .text call/tail-jmp targets (scan_targets/add_discovered)
              unwind.py   authoritative function starts from unwind metadata (Mach-O function-starts / PE .pdata / ELF eh_frame)

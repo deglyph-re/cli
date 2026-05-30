@@ -123,11 +123,7 @@ def find_immediate(image: Image, value: int, *, limit: int = 500) -> list[Hit]:
                     base = (op.mem_base or "").lower()
                     if base in ("rip", "pc"):
                         target, kind = (next_pc + op.mem_disp) & mask, "ref/rip"
-                    elif (
-                        op.mem_base is None
-                        and op.mem_index is None
-                        and op.mem_disp
-                    ):
+                    elif op.mem_base is None and op.mem_index is None and op.mem_disp:
                         target, kind = op.mem_disp & mask, "ref/abs"
                 if target == value:
                     out.append(Hit(ins.addr, 0, kind, ins.text, s.name))

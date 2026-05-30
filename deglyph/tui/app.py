@@ -57,6 +57,7 @@ from ..re import (
     call_immediate_args,
     call_tree,
     callers_of,
+    data_xrefs_to,
     detect_crc_loops,
     extract_strings,
     function_constants,
@@ -1505,7 +1506,7 @@ class DeglyphApp(App):
             for idx, s in shown:
                 short = s.text if len(s.text) <= 60 else s.text[:57] + G["ellipsis"]
                 lbl = Text(f'"{short}"', style=GREEN)
-                if s.encoding == "utf16":
+                if s.encoding != "ascii":
                     lbl.append(" w", style=DIM)
                 leaf = sec_node.add_leaf(lbl, data=(_ITEM_STRING, idx))
                 self._string_nodes[idx] = leaf
@@ -2057,16 +2058,31 @@ class DeglyphApp(App):
         )
 
     def _render_string_info(self, s) -> None:
-        """Info pane content for a String leaf: full text plus its location."""
+        """Info pane content for a String leaf: text, location, and xrefs."""
         t = Text()
         t.append("STRING\n", style=GOLD)
         t.append(f"  {'va':<12}{s.va:#x}\n", style=DIM)
         t.append(f"  {'section':<12}{s.section}\n", style=DIM)
-        enc = "UTF-16LE" if s.encoding == "utf16" else "ASCII"
+        enc = {"utf-16le": "UTF-16LE", "utf-8": "UTF-8"}.get(s.encoding, "ASCII")
         t.append(f"  {'encoding':<12}{enc}\n", style=DIM)
+        if getattr(s, "category", "literal") != "literal":
+            t.append(f"  {'category':<12}{s.category}\n", style=DIM)
         t.append(f"  {'length':<12}{len(s.text)}\n", style=DIM)
         t.append("\nTEXT\n", style=GOLD)
         t.append(f'  "{s.text}"\n', style=GREEN)
+        # Every site that references this address (whole-image, cached), not just
+        # nearby linear hits, so the string's full use set is visible.
+        refs = data_xrefs_to(self.image, s.va) if s.va else []
+        t.append(f"\nXREFS ({len(refs)})\n", style=GOLD)
+        if not refs:
+            t.append("  (none recorded)\n", style=DIM)
+        for addr in refs[:40]:
+            origin = self.image.nearest_func(addr)
+            label = self._disp(origin) if origin else ""
+            seg = Text(f"  {addr:#012x}", style=GREEN)
+            seg.apply_meta({"@click": f"app.goto_addr({addr})"})
+            t.append_text(seg)
+            t.append(f"  {label}\n", style="#d9cbac")
         self.query_one("#info", Static).update(t)
 
     def _render_xrefs(self, func) -> None:
@@ -2150,11 +2166,11 @@ class DeglyphApp(App):
         if not stores:
             t.append("  (none)\n", style=DIM)
         for s in stores[:24]:
-            where = "abs" if s.is_absolute else s.base
-            t.append(
-                f"  {s.addr:#012x}  [{where}+{s.disp & 0xff:#04x}]  ", style="#d9cbac"
-            )
-            t.append(f".{s.size}  = {s.value:#04x}\n", style=GREEN)
+            where = "abs" if s.is_absolute else f"{s.base}{_signed_disp(s.signed_disp)}"
+            t.append(f"  {s.addr:#012x}  [{where}]  ", style="#d9cbac")
+            t.append(f".{s.size}  = {s.value:#04x}", style=GREEN)
+            t.append(_conf_text(s.evidence), style=DIM)
+            t.append("\n")
 
         # Register-passed call arguments (opcodes handed to a shared sender, etc.)
         args = call_immediate_args(img, real)
@@ -2172,7 +2188,9 @@ class DeglyphApp(App):
                     tgt = f" {G['arrow']} {name}"
                 t.append(f"  {a.call_addr:#012x}  {a.reg:<4} = ", style="#d9cbac")
                 t.append(f"{a.value:#04x}", style=GREEN)
-                t.append(f"{tgt}\n", style=GOLD)
+                t.append(tgt, style=GOLD)
+                t.append(_conf_text(a.evidence), style=DIM)
+                t.append("\n")
 
         # Strings, tables, and pointer constants the function points at
         refs = referenced_data(img, real)
@@ -2197,10 +2215,14 @@ class DeglyphApp(App):
             polys = ", ".join(f"{p:#x}" for p in c.polys) or G["mdash"]
             init = f"{c.init:#x}" if c.init is not None else G["mdash"]
             t.append(
-                f"  loop {c.start:#x}{G['ndash']}{c.end:#x}  poly={polys}  "
-                f"init={init}  ({c.insn_count}i)\n",
+                f"  {c.kind} loop {c.start:#x}{G['ndash']}{c.end:#x}  poly={polys}  "
+                f"init={init}  ({c.insn_count}i)",
                 style="#d9cbac",
             )
+            t.append(_conf_text(c.evidence), style=DIM)
+            t.append("\n")
+            for cv in c.evidence.caveats:
+                t.append(f"      {G['hint']} {cv}\n", style=DIM)
             for p in c.polys:
                 hint = _poly_hint(p)
                 if hint:
@@ -3347,6 +3369,36 @@ def run(
         discover=discover,
         welcome=welcome,
     ).run()
+
+
+def _signed_disp(signed: int) -> str:
+    """Signed-displacement suffix for a memory operand (`+0x4` / `-0x8` / '')."""
+    if signed == 0:
+        return ""
+    return f"+{signed:#x}" if signed > 0 else f"-{-signed:#x}"
+
+
+def _conf_text(ev) -> str:
+    """A short confidence/caveat suffix for a detector hit, or '' for plain high."""
+    if ev.confidence == "high" and not ev.caveats:
+        return ""
+    note = f": {ev.caveats[0]}" if ev.caveats else ""
+    return f"  ({ev.confidence}{note})"
+
+
+def _signed_disp(signed: int) -> str:
+    """Signed-displacement suffix for a memory operand (`+0x4` / `-0x8` / '')."""
+    if signed == 0:
+        return ""
+    return f"+{signed:#x}" if signed > 0 else f"-{-signed:#x}"
+
+
+def _conf_text(ev) -> str:
+    """A short confidence/caveat suffix for a detector hit, or '' for plain high."""
+    if ev.confidence == "high" and not ev.caveats:
+        return ""
+    note = f": {ev.caveats[0]}" if ev.caveats else ""
+    return f"  ({ev.confidence}{note})"
 
 
 def _poly_hint(poly: int) -> str | None:

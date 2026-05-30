@@ -99,7 +99,24 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--strings",
         action="store_true",
-        help="print extracted strings (ASCII / UTF-16) and exit",
+        help="print mapped string literals (ASCII / UTF-8 / UTF-16LE) and exit",
+    )
+    ap.add_argument(
+        "--strings-all",
+        action="store_true",
+        help="with --strings: include unmapped runs and section names (raw dump)",
+    )
+    ap.add_argument(
+        "--strings-min",
+        type=int,
+        default=4,
+        metavar="N",
+        help="with --strings: minimum run length (default 4)",
+    )
+    ap.add_argument(
+        "--strings-section",
+        metavar="NAME",
+        help="with --strings: only strings in this section",
     )
     ap.add_argument(
         "-v", "--verbose", action="store_true", help="info-level logging to stderr"
@@ -176,6 +193,9 @@ def main(argv: list[str] | None = None) -> int:
             do_list=args.list,
             analyze=args.analyze,
             strings=args.strings,
+            strings_all=args.strings_all,
+            strings_min=args.strings_min,
+            strings_section=args.strings_section,
             discover=not args.no_discover,
             as_json=args.json,
         )
@@ -432,6 +452,9 @@ def _headless(
     do_list,
     analyze,
     strings=False,
+    strings_all=False,
+    strings_min=4,
+    strings_section=None,
     discover=True,
     as_json=False,
 ) -> int:
@@ -484,9 +507,10 @@ def _headless(
                 f"{' → '.join(hex(x) for x in chain)}"
             )
             for s in immediate_stores(img, real)[:16]:
-                where = "abs" if s.is_absolute else s.base
+                where = "abs" if s.is_absolute else f"{s.base}{_disp(s.signed_disp)}"
+                conf = _conf_tag(s.evidence)
                 c.print(
-                    f"   store \\[{where}+{s.disp & 0xff:#04x}].{s.size} = [#7fb069]{s.value:#04x}[/]"
+                    f"   store \\[{where}].{s.size} = [#7fb069]{s.value:#04x}[/]{conf}"
                 )
             for a in call_immediate_args(img, real)[:12]:
                 tgt = ""
@@ -494,15 +518,33 @@ def _headless(
                     # exact export/symbol only
                     tf = img.func_at(a.target)
                     tgt = f" → {tf.display}" if tf else f" → sub_{a.target:#x}"
+                conf = _conf_tag(a.evidence)
                 c.print(
-                    f"   arg {a.reg} = [#7fb069]{a.value:#04x}[/] at call {a.call_addr:#x}{tgt}"
+                    f"   arg {a.reg} = [#7fb069]{a.value:#04x}[/] "
+                    f"at call {a.call_addr:#x}{tgt}{conf}"
                 )
             for cr in detect_crc_loops(img, real):
                 c.print(
-                    f"   crc loop {cr.start:#x}: poly={[hex(p) for p in cr.polys]} "
-                    f"init={hex(cr.init) if cr.init else None}"
+                    f"   {cr.kind} loop {cr.start:#x}: "
+                    f"poly={[hex(p) for p in cr.polys]} "
+                    f"init={hex(cr.init) if cr.init else None}{_conf_tag(cr.evidence)}"
                 )
     return 0
+
+
+def _disp(signed: int) -> str:
+    """Signed-displacement suffix for a memory operand (`+0x4` / `-0x8` / '')."""
+    if signed == 0:
+        return ""
+    return f"+{signed:#x}" if signed > 0 else f"-{-signed:#x}"
+
+
+def _conf_tag(ev) -> str:
+    """A short `[dim]` confidence/caveat tag for a detector hit, or '' for high."""
+    if ev.confidence == "high" and not ev.caveats:
+        return ""
+    note = f" {ev.caveats[0]}" if ev.caveats else ""
+    return f"  [dim]({ev.confidence}{note})[/]"
 
 
 def _analysis_support(arch) -> dict:
@@ -577,9 +619,10 @@ def _analysis_record(img, f) -> dict:
             {
                 "addr": s.addr,
                 "base": s.base,
-                "disp": s.disp,
+                "disp": s.signed_disp,
                 "size": s.size,
                 "value": s.value,
+                "evidence": _evidence_json(s.evidence),
             }
             for s in immediate_stores(img, real)[:16]
         ],
@@ -589,13 +632,31 @@ def _analysis_record(img, f) -> dict:
                 "reg": a.reg,
                 "value": a.value,
                 "target": a.target,
+                "evidence": _evidence_json(a.evidence),
             }
             for a in call_immediate_args(img, real)[:12]
         ],
         "crc": [
-            {"start": cr.start, "end": cr.end, "polys": cr.polys, "init": cr.init}
+            {
+                "start": cr.start,
+                "end": cr.end,
+                "kind": cr.kind,
+                "polys": cr.polys,
+                "init": cr.init,
+                "evidence": _evidence_json(cr.evidence),
+            }
             for cr in detect_crc_loops(img, real)
         ],
+    }
+
+
+def _evidence_json(ev) -> dict:
+    """Serialize an `Evidence` record for the machine-readable analysis output."""
+    return {
+        "confidence": ev.confidence,
+        "reasons": list(ev.reasons),
+        "caveats": list(ev.caveats),
+        "support": list(ev.support),
     }
 
 

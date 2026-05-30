@@ -191,3 +191,31 @@ def test_nerd_flag_sets_env_var(monkeypatch, tmp_path):
     _capture(monkeypatch)
     cli.main(["--nerd", "--version"])
     assert os.environ.get("DEGLYPH_NERD") == "1"
+
+
+def test_analysis_record_carries_evidence():
+    # The machine-readable analysis record embeds an Evidence block on every
+    # store / call-arg / crc hit, so a consumer can tell a confident field write
+    # from a low-confidence stack spill.
+    import os
+
+    if not os.path.isfile(SAMPLE):
+        import pytest
+
+        pytest.skip("demo.exe not built")
+    from deglyph.cli import _analysis_record
+    from deglyph.core.image import load_image
+    from deglyph.re import discover_functions
+
+    img = load_image(SAMPLE)
+    discover_functions(img)
+    fns = [f for f in img.funcs if "encode_frame" in f.display.lower()]
+    if not fns:
+        import pytest
+
+        pytest.skip("encode_frame not found")
+    rec = _analysis_record(img, fns[0])
+    for s in rec["stores"]:
+        assert "evidence" in s and "confidence" in s["evidence"]
+    for c in rec["crc"]:
+        assert "kind" in c and "evidence" in c

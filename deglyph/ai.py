@@ -134,6 +134,13 @@ def provider_info(key: str) -> Provider | None:
     return PROVIDERS.get((key or "").lower())
 
 
+def _ai_disp(signed: int) -> str:
+    """Signed-displacement suffix for a memory operand in the AI context block."""
+    if signed == 0:
+        return ""
+    return f"+{signed:#x}" if signed > 0 else f"-{-signed:#x}"
+
+
 def _max_tool_iters() -> int:
     """Tool-call rounds before the loop forces a summary.
 
@@ -885,11 +892,12 @@ class Assistant:
                 if name == "analyze":
                     real = thunk_chain(img, va)[-1]
                     stores = [
-                        f"[{s.base}+{s.disp & 0xff:#x}]={s.value:#x}"
+                        f"[{s.base}{_ai_disp(s.signed_disp)}]={s.value:#x}"
+                        f"({s.evidence.confidence})"
                         for s in immediate_stores(img, real)[:16]
                     ]
                     args = [
-                        f"{a.reg}={a.value:#x}"
+                        f"{a.reg}={a.value:#x}({a.evidence.confidence})"
                         for a in call_immediate_args(img, real)[:12]
                     ]
                     crc = [hex(p) for c in detect_crc_loops(img, real) for p in c.polys]

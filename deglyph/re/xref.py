@@ -18,24 +18,35 @@ from ..core.image import Image
 
 @dataclass(slots=True)
 class XrefIndex:
-    # callee_va -> list of caller instruction addresses
+    # callee_va -> list of caller instruction addresses (code: call / jmp)
     to: dict[int, list[int]]
+    # data_va -> list of referencing instruction addresses (data: rip-rel / adrp
+    # / absolute / literal). Lets a string or table show every site that uses it.
+    data: dict[int, list[int]]
 
 
 def _build_index(image: Image) -> XrefIndex:
     dis = Disassembler(image)
     to: dict[int, list[int]] = {}
+    data: dict[int, list[int]] = {}
     text = image.text
     if not text:
-        return XrefIndex(to)
+        return XrefIndex(to, data)
     for ins in dis.at(text.va, text.size):
         if ins.addr >= text.end:
             break
+        # code edges: direct call / jmp into .text
         if ins.is_call() or ins.mnemonic == "jmp":
             t = ins.imm_target()
             if t is not None and text.contains(t):
                 to.setdefault(t, []).append(ins.addr)
-    return XrefIndex(to)
+        # data edge: an operand that resolves to a mapped, non-executable address
+        d = ins.data_ref()
+        if d is not None and not text.contains(d):
+            sec = image.section_at(d)
+            if sec is not None and "X" not in sec.flags.upper():
+                data.setdefault(d, []).append(ins.addr)
+    return XrefIndex(to, data)
 
 
 def _index(image: Image) -> XrefIndex:
@@ -52,6 +63,22 @@ def _index(image: Image) -> XrefIndex:
 def callers_of(image: Image, va: int) -> list[int]:
     """Instruction addresses that call/jmp to `va` (whole-image, cached scan)."""
     return list(_index(image).to.get(va, []))
+
+
+def data_xrefs_to(image: Image, va: int) -> list[int]:
+    """Instruction addresses that reference the data at `va` (cached scan).
+
+    The complement of `callers_of` for non-code targets: every site whose
+    operand resolves to `va` (a string, pointer table, or other datum), so a
+    string's full use set is visible, not just nearby linear hits.
+    """
+    return list(_index(image).data.get(va, []))
+
+
+def xrefs_to(image: Image, va: int) -> list[int]:
+    """All instruction addresses referencing `va`, code (call/jmp) and data."""
+    idx = _index(image)
+    return sorted(set(idx.to.get(va, [])) | set(idx.data.get(va, [])))
 
 
 def callees_of(image: Image, va: int) -> list[int]:
