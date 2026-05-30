@@ -63,7 +63,7 @@ from ..re import (
     immediate_stores,
     pseudo_c,
     referenced_data,
-    scan_call_targets,
+    scan_targets,
     thunk_chain,
 )
 from ..store import Annotations, list_sessions
@@ -1156,13 +1156,13 @@ class DeglyphApp(App):
     @work(exclusive=True, thread=True, group="discover")
     def _discover_worker(self) -> None:
         try:
-            targets = scan_call_targets(self.image)
+            targets = scan_targets(self.image)
         # never let discovery crash the app
         except Exception:
             targets = []
         self.call_from_thread(self._discovery_done, targets)
 
-    def _discovery_done(self, targets: list[int]) -> None:
+    def _discovery_done(self, targets: list) -> None:
         self._stop_discovery_spinner()
         keep = self._current_item()
         # The initial build was skipped while discovery ran (disabled tree), so
@@ -1522,7 +1522,12 @@ class DeglyphApp(App):
         booked = func.va in self._anno.bookmarks
         name = ("* " if booked else "") + self._disp(func)
         style = GOLD if booked else self._KIND_STYLE.get(func.kind, "#d9cbac")
-        leaf = parent.add_leaf(Text(name, style=style), data=idx)
+        label = Text(name, style=style)
+        # A recovered start with weak evidence (tail-jmp only) is flagged so a
+        # candidate boundary is never read as a confirmed one.
+        if getattr(func, "is_candidate", False):
+            label.append(f" {G['candidate']}", style="yellow")
+        leaf = parent.add_leaf(label, data=idx)
         # last writer wins, matching func_at when two Funcs share a VA
         self._va_nodes[func.va] = leaf
         return leaf
@@ -1922,6 +1927,13 @@ class DeglyphApp(App):
             t.append(f"  {'original':<12}{func.display}\n", style=DIM)
         t.append(f"  {'va':<12}{func.va:#x}\n", style=DIM)
         t.append(f"  {'kind':<12}{func.kind}\n", style=DIM)
+        # Recovered subs carry a confidence and the evidence that named them;
+        # container-provided functions are confirmed with nothing to explain.
+        if func.kind == "sub":
+            conf_style = "yellow" if func.is_candidate else GREEN
+            t.append(f"  {'confidence':<12}{func.confidence}\n", style=conf_style)
+            for ev in func.evidence:
+                t.append(f"  {'why':<12}{ev}\n", style=DIM)
         sec = img.section_at(func.va)
         if sec:
             t.append(f"  {'section':<12}{sec.name}\n", style=DIM)

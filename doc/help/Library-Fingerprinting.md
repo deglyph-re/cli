@@ -32,7 +32,7 @@ string is verified stable across upstream versions, to avoid false matches.
 ## Absence is silence, not proof
 
 An empty result means **no catalog match**, not that the binary is
-self-contained. The library may simply not be in the catalog, or may not emit a
+self-contained. The library may not be in the catalog, or may not emit a
 recognizable banner. When you report results, say "no catalog match", never "no
 third-party libraries". See [Heuristics, Not Proofs](Heuristics.md).
 

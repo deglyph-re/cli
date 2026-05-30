@@ -11,8 +11,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from capstone import x86
-
 from ..core.disasm import Disassembler
 from ..core.image import Image
 
@@ -115,27 +113,25 @@ def find_immediate(image: Image, value: int, *, limit: int = 500) -> list[Hit]:
         for ins in dis.at(s.va, s.size):
             if ins.addr >= s.end:
                 break
-            cs = ins._cs
-            if not cs:
-                continue
-            try:
-                for op in cs.operands:
-                    target: int | None = None
-                    kind = ""
-                    if op.type == x86.X86_OP_IMM:
-                        target, kind = op.imm & mask, "imm"
-                    elif op.type == x86.X86_OP_MEM:
-                        mem = op.mem
-                        if mem.base == x86.X86_REG_RIP:
-                            target = (ins.addr + ins.size + mem.disp) & mask
-                            kind = "ref/rip"
-                        elif mem.base == 0 and mem.index == 0 and mem.disp:
-                            target, kind = mem.disp & mask, "ref/abs"
-                    if target == value:
-                        out.append(Hit(ins.addr, 0, kind, ins.text, s.name))
-                        raise StopIteration
-            except StopIteration:
-                pass
+            next_pc = ins.addr + ins.size
+            for op in ins.operands():
+                target: int | None = None
+                kind = ""
+                if op.is_imm and op.imm is not None:
+                    target, kind = op.imm & mask, "imm"
+                elif op.is_mem:
+                    base = (op.mem_base or "").lower()
+                    if base in ("rip", "pc"):
+                        target, kind = (next_pc + op.mem_disp) & mask, "ref/rip"
+                    elif (
+                        op.mem_base is None
+                        and op.mem_index is None
+                        and op.mem_disp
+                    ):
+                        target, kind = op.mem_disp & mask, "ref/abs"
+                if target == value:
+                    out.append(Hit(ins.addr, 0, kind, ins.text, s.name))
+                    break
             if len(out) >= limit:
                 return out
     return out

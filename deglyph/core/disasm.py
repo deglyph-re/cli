@@ -13,9 +13,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import capstone
-from capstone import x86
 
 from .image import Arch, Image
+
+# Capstone operand-type ids are shared across x86 / ARM / AArch64 (CS_OP_REG=1,
+# CS_OP_IMM=2, CS_OP_MEM=3), so the operand walker is arch-neutral and never
+# imports a per-arch constant module.
+_OP_REG = 1
+_OP_IMM = 2
+_OP_MEM = 3
 
 _ARCH_MODE = {
     Arch.X86: (capstone.CS_ARCH_X86, capstone.CS_MODE_32),
@@ -27,8 +33,14 @@ _ARCH_MODE = {
 
 # Mnemonics that terminate a basic block / function tail
 _TERMINATORS = {"ret", "retf", "iret", "iretd", "iretq", "hlt"}
-_BRANCH = {
-    "jmp",
+
+# Unconditional jumps: control leaves with no fall-through. x86 `jmp`, ARM `b`
+# (and the indirect `br`, which carries no static target).
+_UNCOND_JMP = {"jmp", "b", "br"}
+
+# Conditional branches that fall through when not taken. x86 Jcc / loop, plus the
+# AArch64 compare-and-branch forms (`b.<cc>` is matched by its `b.` prefix).
+_COND_BRANCH = {
     "je",
     "jne",
     "jz",
@@ -53,11 +65,46 @@ _BRANCH = {
     "loop",
     "loope",
     "loopne",
-    "b",
-    "bl",
-    "br",
-    "blr",
+    "cbz",
+    "cbnz",
+    "tbz",
+    "tbnz",
 }
+
+_BRANCH = _UNCOND_JMP | _COND_BRANCH | {"bl", "blr"}
+
+
+@dataclass(slots=True)
+class Operand:
+    """One decoded operand, arch-neutral.
+
+    `kind` is "reg" | "imm" | "mem" | "other". `reg` is a register name for a
+    register operand (or a memory base/index); `imm` is the immediate value;
+    `mem_base` / `mem_index` are register names (or None) and `mem_disp` the
+    signed displacement for a memory operand. The walker fills only the fields
+    that apply, so a consumer can branch on `kind` without touching capstone.
+    """
+
+    kind: str
+    reg: str | None = None
+    imm: int | None = None
+    mem_base: str | None = None
+    mem_index: str | None = None
+    mem_disp: int = 0
+    # access width in bytes (capstone op.size); 0 when unknown
+    size: int = 0
+
+    @property
+    def is_reg(self) -> bool:
+        return self.kind == "reg"
+
+    @property
+    def is_imm(self) -> bool:
+        return self.kind == "imm"
+
+    @property
+    def is_mem(self) -> bool:
+        return self.kind == "mem"
 
 
 @dataclass(slots=True)
@@ -81,18 +128,97 @@ class Insn:
         return self.mnemonic in ("call", "bl", "blr")
 
     def is_branch(self) -> bool:
-        return self.mnemonic in _BRANCH or self.is_call()
+        return self.is_uncond_jmp() or self.is_cond_branch() or self.is_call()
+
+    def is_uncond_jmp(self) -> bool:
+        """An unconditional jump (no fall-through): x86 `jmp`, ARM `b` / `br`."""
+        return self.mnemonic in _UNCOND_JMP
+
+    def is_cond_branch(self) -> bool:
+        """A conditional branch (falls through when not taken).
+
+        Covers x86 Jcc / loop and the AArch64 compare-and-branch forms, plus
+        `b.<cc>` (matched by its `b.` prefix, e.g. `b.eq`).
+        """
+        return self.mnemonic in _COND_BRANCH or self.mnemonic.startswith("b.")
 
     def imm_target(self) -> int | None:
-        """Direct (immediate) branch/call target, if any."""
-        if not self._cs:
-            return None
+        """Direct (immediate) branch/call target, if any (any architecture)."""
+        for op in self.operands():
+            if op.is_imm and op.imm is not None:
+                return op.imm & 0xFFFFFFFFFFFFFFFF
+        return None
+
+    def operands(self) -> list[Operand]:
+        """Decoded operands as arch-neutral `Operand`s ([] when detail is off).
+
+        Reads the capstone detail once and maps each operand to the shared
+        (reg / imm / mem) shape, so x86, ARM, and AArch64 are walked the same
+        way and no caller imports a per-arch capstone constant module. Register
+        ids become names (`rip`, `x0`); a bad detail record degrades to [].
+        """
+        cs = self._cs
+        if not cs:
+            return []
+        out: list[Operand] = []
         try:
-            for op in self._cs.operands:
-                if op.type == x86.X86_OP_IMM:
-                    return op.imm & 0xFFFFFFFFFFFFFFFF
+            ops = cs.operands
         except Exception:
-            return None
+            return []
+        for op in ops:
+            try:
+                size = int(getattr(op, "size", 0) or 0)
+                if op.type == _OP_IMM:
+                    out.append(
+                        Operand("imm", imm=op.imm & 0xFFFFFFFFFFFFFFFF, size=size)
+                    )
+                elif op.type == _OP_REG:
+                    out.append(Operand("reg", reg=cs.reg_name(op.reg), size=size))
+                elif op.type == _OP_MEM:
+                    mem = op.mem
+                    base = cs.reg_name(mem.base) if mem.base else None
+                    index = (
+                        cs.reg_name(mem.index)
+                        if getattr(mem, "index", 0)
+                        else None
+                    )
+                    out.append(
+                        Operand(
+                            "mem",
+                            mem_base=base,
+                            mem_index=index,
+                            mem_disp=mem.disp,
+                            size=size,
+                        )
+                    )
+                else:
+                    out.append(Operand("other"))
+            except Exception:
+                out.append(Operand("other"))
+        return out
+
+    def data_ref(self) -> int | None:
+        """Address of a data location this instruction references, or None.
+
+        Resolves the arch-specific addressing modes that point at a constant /
+        string / table: x86 RIP-relative (`[rip + disp]`, folded against the
+        next instruction) and absolute (`[disp]`); AArch64 `adrp`/`ldr`-literal
+        and other PC-relative immediates (capstone already resolves these to the
+        target address in the IMM operand). Returns the first such address.
+        """
+        next_pc = self.addr + self.size
+        for op in self.operands():
+            if op.is_mem:
+                base = (op.mem_base or "").lower()
+                if base in ("rip", "pc"):
+                    return (next_pc + op.mem_disp) & 0xFFFFFFFFFFFFFFFF
+                if op.mem_base is None and op.mem_index is None and op.mem_disp:
+                    return op.mem_disp & 0xFFFFFFFFFFFFFFFF
+            elif op.is_imm and op.imm:
+                # adrp / ldr-literal / movz-of-address: capstone resolves the
+                # PC-relative target into the IMM, so an immediate that lands in
+                # a mapped section is a data pointer (the caller section-filters).
+                return op.imm & 0xFFFFFFFFFFFFFFFF
         return None
 
 

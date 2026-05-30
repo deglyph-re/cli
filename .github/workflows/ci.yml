@@ -34,6 +34,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Cross toolchains for fixtures (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu gcc-mingw-w64-x86-64
+
+      - name: Build regression fixtures
+        shell: bash
+        run: bash samples/build_fixtures.sh
+
       - name: Lint (ruff)
         run: ruff check deglyph scripts tests
 

@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..core.disasm import Disassembler
 from ..core.image import Arch, Image
+from .cfg import function_insns
 
 # mnemonic -> compound-assignment operator
 _BINOP = {
@@ -72,7 +72,7 @@ def pseudo_c(image: Image, va: int, *, max_insns: int = 2000) -> list[PseudoLine
     """Pseudo-C for the function at `va`. Empty on non-x86 targets."""
     if image.arch not in (Arch.X86, Arch.X64):
         return []
-    insns = Disassembler(image).func(va, max_insns=max_insns)
+    insns = function_insns(image, va, max_insns=max_insns)
     if not insns:
         return []
 

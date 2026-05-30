@@ -11,6 +11,8 @@ htmlcov/
 .ruff_cache/
 .DS_Store
 *.sarif
+.claude
+TODO.md
 
 # Private launch / business setup notes; never publish.
 LAUNCH.md
@@ -23,3 +25,10 @@ LAUNCH.md
 *.dylib
 *.bin
 !samples/demo.exe
+
+# Regression fixtures are built from samples/fixture_src.c by
+# samples/build_fixtures.sh (and in CI), never committed. They have no extension,
+# so ignore them by name; the build script and source stay tracked.
+samples/fixture_macho_*
+samples/fixture_elf_*
+samples/fixture_pe_*

@@ -32,8 +32,8 @@ asked about even if you navigate away before the answer arrives.
 ## Providers
 
 The assistant is provider-agnostic. It speaks two request shapes: the Anthropic
-API and any OpenAI-compatible endpoint. Out of the box it supports Anthropic,
-OpenAI, Groq, OpenRouter, DeepSeek, Ollama, LM Studio, and custom endpoints.
+API and any OpenAI-compatible endpoint. It supports Anthropic, OpenAI, Groq,
+OpenRouter, DeepSeek, Ollama, LM Studio, and custom endpoints.
 Choose a provider, model, and base URL from the command palette under
 "AI provider...".
 

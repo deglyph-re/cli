@@ -465,7 +465,8 @@ def _headless(
     )
     if do_list:
         for f in sorted(img.funcs, key=lambda x: x.va):
-            c.print(f"  [dim]{f.va:#012x}[/] [#6a9fb5]{f.kind:<7}[/] {f.display}")
+            mark = " [yellow](candidate)[/]" if f.is_candidate else ""
+            c.print(f"  [dim]{f.va:#012x}[/] [#6a9fb5]{f.kind:<7}[/] {f.display}{mark}")
     if strings:
         # plain print (no Rich markup) so the dump pipes / greps cleanly
         for st in extract_strings(img):
@@ -504,6 +505,25 @@ def _headless(
     return 0
 
 
+def _analysis_support(arch) -> dict:
+    """Per-feature architecture support, surfaced in JSON so absent != unsupported.
+
+    The operand-level detectors (immediate stores, call-arg constants, CRC loops,
+    constants, data refs) run on x86/x64/ARM64 via the arch-neutral operand
+    walker; pseudo-C is still an x86-only statement model. A feature marked False
+    here yields an empty result by design, not because nothing was found.
+    """
+    ops = arch in (Arch.X86, Arch.X64, Arch.ARM64)
+    return {
+        "immediate_stores": ops,
+        "call_immediate_args": ops,
+        "detect_crc_loops": ops,
+        "function_constants": ops,
+        "referenced_data": arch != Arch.UNKNOWN,
+        "pseudo_c": arch in (Arch.X86, Arch.X64),
+    }
+
+
 def _emit_json(img, do_list, analyze, strings=False) -> int:
     """Machine-readable --list / --analyze / --strings output for scripting."""
     out: dict = {
@@ -511,10 +531,20 @@ def _emit_json(img, do_list, analyze, strings=False) -> int:
         "fmt": img.fmt,
         "arch": img.arch.value,
         "base": img.base,
+        # Which analyses run for this binary's architecture, so a consumer can
+        # tell "no hits" apart from "not supported on this arch".
+        "analysis_support": _analysis_support(img.arch),
     }
     if do_list:
         out["functions"] = [
-            {"va": f.va, "name": f.name, "display": f.display, "kind": f.kind}
+            {
+                "va": f.va,
+                "name": f.name,
+                "display": f.display,
+                "kind": f.kind,
+                "confidence": f.confidence,
+                "evidence": list(f.evidence),
+            }
             for f in sorted(img.funcs, key=lambda x: x.va)
         ]
     if strings:

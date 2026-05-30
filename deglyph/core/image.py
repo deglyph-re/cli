@@ -66,16 +66,27 @@ class Func:
 
     name: str
     va: int
-    # export | symbol | entry | import
+    # export | symbol | entry | import | sub
     kind: str = "func"
     ordinal: int | None = None
     demangled: str | None = None
     # 0 = unknown (computed lazily)
     size: int = 0
+    # "confirmed" for a named address from the container (export/symbol/entry/
+    # import) or a direct-call discovery; "candidate" for a recovered start with
+    # weaker evidence (reached only by a tail jmp). Surfaced in the UI and JSON.
+    confidence: str = "confirmed"
+    # Short human-readable reasons the start was recovered, e.g.
+    # "direct call from sub_401000". Empty for container-provided functions.
+    evidence: tuple[str, ...] = ()
 
     @property
     def display(self) -> str:
         return self.demangled or self.name
+
+    @property
+    def is_candidate(self) -> bool:
+        return self.confidence == "candidate"
 
 
 @dataclass(slots=True)

@@ -64,7 +64,9 @@ deglyph/
              xref.py     callers_of (cached whole-image index), callees_of, thunk -> impl chain, call_tree
              patterns.py immediate_stores, call_immediate_args, detect_crc_loops, constants
              pseudo.py   heuristic x86-only pseudo-C (linear annotation, not a decompiler)
-             discover.py sub_<va> discovery from .text call targets (scan_call_targets/add_discovered)
+             discover.py sub_<va> discovery from unwind tables + .text call/tail-jmp targets (scan_targets/add_discovered)
+             unwind.py   authoritative function starts from unwind metadata (Mach-O function-starts / PE .pdata / ELF eh_frame)
+             cfg.py      bounded recursive-descent CFG per function (basic blocks + undecoded gaps); backs the linear view
              fingerprint.py SIGNATURES table + scan_fingerprint -> LibHit list (zlib/openssl/sqlite/...)
   ai.py      agentic Claude assistant (Anthropic SDK, prompt-cached, opt-in); read-only tools over Image
   scan.py    headless CI scanner: hardening posture / secrets / libs / risky imports / baseline diff
@@ -83,6 +85,7 @@ deglyph/
   __main__.py            enables `python -m deglyph`
 tests/       test_deglyph.py + per-feature tests (detectors, robustness, cli, render, call_tree, pseudo, ai, tui, store, search, discover, scan, account)
 samples/     demo.c + demo.exe: domain-neutral toy binary committed as a CI fixture (planted secret, crc16, opcode)
+             fixture_src.c + build_fixtures.sh: stripped PE/ELF/Mach-O/fat function-recovery fixtures, built (not committed), skipif-absent
 doc/help/    the manual: help.json index + categorized Markdown entries (rendered by the website's docs.html)
 doc/claude/  developer reference extracted from this file: architecture.md, common-mistakes.md, extending.md
 action.yml   composite GitHub Action wrapping `deglyph scan`; examples/deglyph-scan.yml is a consumer workflow

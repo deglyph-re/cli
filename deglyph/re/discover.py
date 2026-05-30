@@ -4,36 +4,95 @@
 Function discovery for binaries without exports or symbols.
 
 A stripped EXE exposes only its entrypoint and import thunks; its real functions
-sit unnamed in `.text`. `discover_functions` recovers them by scanning executable
-sections for direct `call` targets -- a strong, low-false-positive signal for a
-function start -- and registers each new one as a `sub_<va>` entry.
+sit unnamed in `.text`. `discover_functions` recovers them from three signals,
+each registered as a `sub_<va>` entry:
 
-This is a heuristic recovery, not a complete CFG: indirect calls, jump tables, and
-functions reached only by tail-`jmp` are missed, and a `call` into the middle of a
-routine (rare) would name a false start. Treat `sub_*` entries as candidates.
+  - **unwind-table start** (`re/unwind.py`) -- an authoritative boundary the OS
+    unwinds the stack off (Mach-O function-starts, PE `.pdata`, ELF `eh_frame`);
+    registered as `confidence="confirmed"`.
+  - **direct `call` target** -- a strong, low-false-positive function start;
+    registered as `confidence="confirmed"`.
+  - **tail `jmp` target that leaves the calling function** -- a function reached
+    only by an optimized tail call (no `call` site); weaker, registered as
+    `confidence="candidate"`.
+
+Every recovered start carries `evidence` (the instructions that named it) so the
+UI and JSON can show why it was recovered. Obvious mid-function false positives
+(a branch into the body of an already-known function) are suppressed.
+
+This is a heuristic recovery, not a complete CFG: indirect calls and jump-table
+targets are still missed. Treat `sub_*` entries, and especially candidates, as
+recovered starts to confirm in the disassembly, not as proven boundaries.
 """
 
 from __future__ import annotations
 
+from bisect import bisect_right
+from dataclasses import dataclass
+
 from ..core.disasm import Disassembler
 from ..core.image import Func, Image
+from .unwind import unwind_starts
+
+
+@dataclass(slots=True)
+class _Hit:
+    """A recovered start before it is reconciled against known functions."""
+
+    va: int
+    confirmed: bool
+    evidence: list[str]
 
 
 def _executable(image: Image):
     return [s for s in image.sections if "X" in s.flags.upper()]
 
 
+def _enclosing_start(starts: list[int], va: int) -> int | None:
+    """The greatest known/confirmed start at or below `va` (its function), if any."""
+    i = bisect_right(starts, va)
+    return starts[i - 1] if i else None
+
+
 def scan_call_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[int]:
-    """Call targets in executable code that are not already named functions.
+    """Direct-`call` targets in code not already named (back-compat shim).
+
+    Retained for callers that only want the confirmed call-target set; the TUI
+    worker uses `scan_targets` for the richer hit list. Read-only.
+    """
+    return [h.va for h in scan_targets(image, max_bytes=max_bytes) if h.confirmed]
+
+
+def scan_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[_Hit]:
+    """Recovered starts (call + tail-jmp) not already named, with evidence.
 
     Read-only: it does not mutate the image, so it is safe to run on a worker
     thread while the UI reads the same image. Apply the result with
     `add_discovered`. Scans up to `max_bytes` of code (this is the slow step on
     large binaries -- Capstone decodes every byte of `.text`).
+
+    Two passes over the decode: the first collects direct-`call` targets (the
+    confirmed set), which then anchor the function-start boundaries used in the
+    second pass to tell an intra-function `jmp` from a tail call that leaves the
+    function. A `jmp` whose target sits inside the same function it came from is
+    a branch, not a start, and is dropped.
     """
     dis = Disassembler(image)
     exec_sections = _executable(image)
-    targets: set[int] = set()
+
+    def in_exec(t: int) -> bool:
+        return any(sec.contains(t) for sec in exec_sections)
+
+    # Authoritative starts from the unwind metadata. The OS unwinds the stack
+    # off these tables, so each is a real boundary; they seed the confirmed set
+    # and anchor the tail-jmp suppression below.
+    unwind: dict[int, str] = {}
+    for va, source in unwind_starts(image):
+        if in_exec(va) and image.func_at(va) is None:
+            unwind[va] = source
+
+    decoded: list = []
+    calls: dict[int, list[str]] = {}
     scanned = 0
     for s in exec_sections:
         if scanned >= max_bytes:
@@ -43,19 +102,82 @@ def scan_call_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> lis
         for ins in dis.at(s.va, span):
             if ins.addr >= s.va + span:
                 break
+            decoded.append(ins)
             if ins.is_call():
                 t = ins.imm_target()
-                if t is not None and any(sec.contains(t) for sec in exec_sections):
-                    targets.add(t)
-    return sorted(t for t in targets if image.func_at(t) is None)
+                if t is not None and in_exec(t):
+                    calls.setdefault(t, []).append(f"direct call at {ins.addr:#x}")
+
+    # Function-start anchors: unwind starts and call targets plus every name the
+    # container already gave us. A tail jmp counts as a new start only when it
+    # crosses out of the function enclosing the jmp instruction.
+    starts = sorted(set(unwind) | set(calls) | {f.va for f in image.funcs})
+
+    jmps: dict[int, list[str]] = {}
+    for ins in decoded:
+        if ins.mnemonic not in ("jmp", "b"):
+            continue
+        t = ins.imm_target()
+        if t is None or not in_exec(t) or t in calls or image.func_at(t) is not None:
+            continue
+        src_fn = _enclosing_start(starts, ins.addr)
+        dst_fn = _enclosing_start(starts, t)
+        # Same enclosing function -> intra-function branch, not a new start.
+        if src_fn is not None and src_fn == dst_fn:
+            continue
+        # Target lands inside the body of a *bounded* known function (between a
+        # start and the next start, not at the start itself) -> mid-function
+        # false positive. A target past the last known start is unbounded and
+        # treated as a genuine tail-call start, not suppressed.
+        if dst_fn is not None and dst_fn != t:
+            i = bisect_right(starts, dst_fn)
+            next_start = starts[i] if i < len(starts) else None
+            if next_start is not None and t < next_start:
+                continue
+        jmps.setdefault(t, []).append(f"tail jmp at {ins.addr:#x}")
+
+    hits: dict[int, _Hit] = {}
+    # Unwind-table starts are the strongest signal; record them first so a call
+    # target at the same VA merges its evidence rather than overwriting.
+    for va, source in unwind.items():
+        hits[va] = _Hit(va=va, confirmed=True, evidence=[source])
+    for va, ev in calls.items():
+        if image.func_at(va) is not None:
+            continue
+        if va in hits:
+            hits[va].evidence = (hits[va].evidence + ev)[:4]
+        else:
+            hits[va] = _Hit(va=va, confirmed=True, evidence=ev[:4])
+    for va, ev in jmps.items():
+        if va in hits or image.func_at(va) is not None:
+            continue
+        hits[va] = _Hit(va=va, confirmed=False, evidence=ev[:4])
+    return [hits[va] for va in sorted(hits)]
 
 
-def add_discovered(image: Image, targets: list[int]) -> int:
-    """Register `sub_<va>` functions for `targets` and reindex. Returns the count."""
+def add_discovered(image: Image, targets: list) -> int:
+    """Register `sub_<va>` functions for `targets` and reindex. Returns the count.
+
+    Accepts a list of `_Hit` (confidence + evidence carried through) or a plain
+    list of int VAs (treated as confirmed call targets, no evidence) for the
+    back-compat call-target path.
+    """
     added = 0
-    for va in targets:
+    for t in targets:
+        if isinstance(t, int):
+            va, confirmed, evidence = t, True, ()
+        else:
+            va, confirmed, evidence = t.va, t.confirmed, tuple(t.evidence)
         if image.func_at(va) is None:
-            image.funcs.append(Func(name=f"sub_{va:x}", va=va, kind="sub"))
+            image.funcs.append(
+                Func(
+                    name=f"sub_{va:x}",
+                    va=va,
+                    kind="sub",
+                    confidence="confirmed" if confirmed else "candidate",
+                    evidence=evidence,
+                )
+            )
             added += 1
     if added:
         image.reindex()
@@ -69,9 +191,9 @@ def add_discovered(image: Image, targets: list[int]) -> int:
 def discover_functions(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> int:
     """Scan for and register unexported functions in one synchronous pass.
 
-    Convenience for headless use and tests; the TUI runs `scan_call_targets` on a
+    Convenience for headless use and tests; the TUI runs `scan_targets` on a
     worker and applies `add_discovered` on the UI thread. Idempotent.
     """
     if getattr(image, "_discovered", False):
         return 0
-    return add_discovered(image, scan_call_targets(image, max_bytes=max_bytes))
+    return add_discovered(image, scan_targets(image, max_bytes=max_bytes))

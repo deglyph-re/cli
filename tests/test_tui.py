@@ -1324,3 +1324,35 @@ def test_fat_slice_picker_and_switch(tmp_path, monkeypatch):
             assert app.image.slice_index == other
 
     asyncio.run(scenario())
+
+
+def test_candidate_sub_flagged_in_tree_and_info(host_binary, tmp_path, monkeypatch):
+    """A candidate sub_ shows the candidate glyph in its leaf and its evidence in Info."""
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    from deglyph.core.image import Func
+    from deglyph.tui.glyphs import G
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            base = max(f.va for f in app.image.funcs) + 0x100
+            cand = Func(
+                name=f"sub_{base:x}",
+                va=base,
+                kind="sub",
+                confidence="candidate",
+                evidence=("tail jmp at 0x1004",),
+            )
+            conf = Func(name=f"sub_{base + 0x10:x}", va=base + 0x10, kind="sub")
+            app.image.funcs.extend([cand, conf])
+            app._apply_filter()
+            await pilot.pause()
+            assert G["candidate"] in app._va_nodes[cand.va].label.plain
+            assert G["candidate"] not in app._va_nodes[conf.va].label.plain
+            app._render_func_info(cand)
+            info = _pane_text(app, "#info")
+            assert "candidate" in info
+            assert "tail jmp at 0x1004" in info
+
+    asyncio.run(scenario())

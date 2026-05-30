@@ -4,12 +4,12 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/deglyph)](https://pypi.org/project/deglyph/)
 [![CI](https://img.shields.io/github/actions/workflow/status/deglyph-re/cli/ci.yml?branch=main&label=CI)](https://github.com/deglyph-re/cli/actions/workflows/ci.yml)
 
-deglyph loads a PE, ELF, or Mach-O and recovers its functions, even when the binary
-exports nothing. From there you can read annotated disassembly, walk recursive call
-graphs, skim a heuristic pseudo-C view, and let pattern detectors surface the
-structure you would otherwise dig out by hand. Branch and call targets are clickable,
-your renames and notes stay with you between sessions, and an optional AI assistant is
-on hand to explain anything you select.
+deglyph loads a PE, ELF, or Mach-O and recovers its functions, including when the
+binary exports nothing. From there you can read annotated disassembly, walk recursive
+call graphs, read a heuristic pseudo-C view, and run pattern detectors that recover
+structure facts (constants, call arguments, CRC loops) without a decompiler. Branch
+and call targets are clickable, renames and notes persist between sessions, and an
+optional AI assistant can explain a selected function.
 
 ![deglyph displaying a function explanation using AI](https://raw.githubusercontent.com/deglyph-re/cli/main/doc/screenshot.png)
 
@@ -23,8 +23,7 @@ on hand to explain anything you select.
   it: find hardcoded secrets and magic values, spot CRC/checksum and command-
   dispatch routines, see which functions and imports you expose, and diff two
   builds of the same library to catch unintended changes. `deglyph scan` does
-  this headless with a SARIF report and a CI exit code, ready to drop into a
-  pipeline in a few lines.
+  this headless with a SARIF report and a CI exit code for use in a pipeline.
 
 deglyph never executes the binary it analyzes; it only reads and disassembles it.
 Built on [LIEF](https://lief.re) for container parsing,
@@ -108,11 +107,10 @@ xrefs/search) to locate and explain the function itself, citing clickable addres
 The current function's disassembly is cached context; tool calls show live as it
 works. Replies render as markdown with the cited addresses still clickable, and
 each function's conversation is saved with your other annotations, so it resumes
-when you re-open the binary. Opt-in, sends nothing until you ask. The assistant
-comes with every install; you only choose a model and add a key. Use Claude with
-your own key, or point it at any OpenAI-compatible endpoint, including a local
-Ollama or LM Studio. See [Set up the AI assistant](#set-up-the-ai-assistant)
-for the steps.
+when you re-open the binary. Opt-in, sends nothing until you ask. It ships with
+every install; you choose a model and add a key. Use Claude with your own key, or
+point it at any OpenAI-compatible endpoint, including a local Ollama or LM Studio.
+See [Set up the AI assistant](#set-up-the-ai-assistant) for the steps.
 
 **Scan for CI (`deglyph scan`).** A headless check for build pipelines: it reports
 embedded **secrets** (private keys, cloud/provider tokens, and credential-labeled
@@ -160,7 +158,7 @@ First launch prints `creating virtual environment...`, installs the
 dependencies, then opens the interface. Later launches start immediately.
 
 You can also install it as a package and use the `deglyph` command. A plain
-install has everything: the AI assistant (`anthropic`) and C++ symbol demangling
+install is complete: the AI assistant (`anthropic`) and C++ symbol demangling
 (`cxxfilt`) are both runtime dependencies.
 
 ```bash

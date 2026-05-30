@@ -17,10 +17,8 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from capstone import x86
-
-from ..core.disasm import Disassembler
 from ..core.image import Arch, Image
+from .cfg import function_insns
 
 _ASCII_RUN = re.compile(rb"[\x20-\x7e]+")
 
@@ -119,33 +117,29 @@ def _describe(
 def referenced_data(image: Image, va: int, *, max_insns: int = 1500) -> list[DataRef]:
     """Strings, tables, and pointer constants referenced by the function at `va`.
 
-    x86 only (rip-relative / absolute memory operands and pointer immediates);
-    returns [] on other architectures, like the other operand-level detectors.
+    Arch-neutral via the operand walker: x86 RIP-relative / absolute memory
+    operands, AArch64 `adrp`/`ldr`-literal and other PC-relative refs, and bare
+    pointer immediates. A memory reference is reported whether it lands on a
+    string or a table; a bare immediate only when it points at a string.
     """
-    if image.arch not in (Arch.X86, Arch.X64):
+    if image.arch == Arch.UNKNOWN:
         return []
-    dis = Disassembler(image)
     out: list[DataRef] = []
     seen: set[int] = set()
-    for ins in dis.func(va, max_insns=max_insns):
-        cs = ins._cs
-        if cs is None:
-            continue
-        try:
-            ops = cs.operands
-        except Exception:
-            continue
-        for op in ops:
+    for ins in function_insns(image, va, max_insns=max_insns):
+        next_pc = ins.addr + ins.size
+        for op in ins.operands():
             target, string_only = None, False
-            if op.type == x86.X86_OP_MEM:
-                mem = op.mem
-                if mem.base == x86.X86_REG_RIP:
-                    target = ins.addr + ins.size + mem.disp
-                elif mem.base == 0 and mem.index == 0 and mem.disp:
-                    target = mem.disp & 0xFFFFFFFFFFFFFFFF
-            elif op.type == x86.X86_OP_IMM:
-                # A bare immediate is only a "reference" if it points at a string;
-                # plain numeric constants would be too noisy here.
+            if op.is_mem:
+                base = (op.mem_base or "").lower()
+                if base in ("rip", "pc"):
+                    target = (next_pc + op.mem_disp) & 0xFFFFFFFFFFFFFFFF
+                elif op.mem_base is None and op.mem_index is None and op.mem_disp:
+                    target = op.mem_disp & 0xFFFFFFFFFFFFFFFF
+            elif op.is_imm and op.imm:
+                # adrp / ldr-literal resolve a PC-relative address into the IMM;
+                # a bare numeric immediate is only a "reference" if it points at
+                # a string (else too noisy).
                 target, string_only = op.imm & 0xFFFFFFFFFFFFFFFF, True
             if target is None or target in seen:
                 continue
