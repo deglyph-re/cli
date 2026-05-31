@@ -41,6 +41,14 @@ inputs:
     description: Query osv.dev for CVEs against detected libraries (needs network).
     required: false
     default: "false"
+  offline:
+    description: Never touch the network; report CVEs as not-checked rather than clean.
+    required: false
+    default: "false"
+  lib-signatures:
+    description: "Path to an extra library signature database (JSON) merged with the built-ins."
+    required: false
+    default: ""
   no-hardening:
     description: Skip the cross-platform hardening posture check.
     required: false
@@ -105,6 +113,8 @@ runs:
         DG_UPLOAD: ${{ inputs.upload-sarif }}
         DG_ENTROPY: ${{ inputs.entropy }}
         DG_CVE: ${{ inputs.cve }}
+        DG_OFFLINE: ${{ inputs.offline }}
+        DG_LIB_SIGS: ${{ inputs.lib-signatures }}
         DG_NO_HARDEN: ${{ inputs.no-hardening }}
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
@@ -122,6 +132,8 @@ runs:
         [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
+        [ "$DG_OFFLINE" = "true" ] && args+=(--offline)
+        [ -n "$DG_LIB_SIGS" ] && args+=(--lib-signatures "$DG_LIB_SIGS")
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
         [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
         for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
@@ -141,6 +153,8 @@ runs:
         DG_BASELINE: ${{ inputs.baseline }}
         DG_ENTROPY: ${{ inputs.entropy }}
         DG_CVE: ${{ inputs.cve }}
+        DG_OFFLINE: ${{ inputs.offline }}
+        DG_LIB_SIGS: ${{ inputs.lib-signatures }}
         DG_NO_HARDEN: ${{ inputs.no-hardening }}
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
@@ -153,6 +167,8 @@ runs:
         [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
+        [ "$DG_OFFLINE" = "true" ] && args+=(--offline)
+        [ -n "$DG_LIB_SIGS" ] && args+=(--lib-signatures "$DG_LIB_SIGS")
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
         [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
         for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
@@ -169,6 +185,8 @@ runs:
         DG_BASELINE: ${{ inputs.baseline }}
         DG_ENTROPY: ${{ inputs.entropy }}
         DG_CVE: ${{ inputs.cve }}
+        DG_OFFLINE: ${{ inputs.offline }}
+        DG_LIB_SIGS: ${{ inputs.lib-signatures }}
         DG_NO_HARDEN: ${{ inputs.no-hardening }}
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
@@ -181,6 +199,8 @@ runs:
         [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
+        [ "$DG_OFFLINE" = "true" ] && args+=(--offline)
+        [ -n "$DG_LIB_SIGS" ] && args+=(--lib-signatures "$DG_LIB_SIGS")
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
         [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
         for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done
@@ -204,6 +224,8 @@ runs:
         DG_BASELINE: ${{ inputs.baseline }}
         DG_ENTROPY: ${{ inputs.entropy }}
         DG_CVE: ${{ inputs.cve }}
+        DG_OFFLINE: ${{ inputs.offline }}
+        DG_LIB_SIGS: ${{ inputs.lib-signatures }}
         DG_NO_HARDEN: ${{ inputs.no-hardening }}
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
@@ -216,6 +238,8 @@ runs:
         [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
+        [ "$DG_OFFLINE" = "true" ] && args+=(--offline)
+        [ -n "$DG_LIB_SIGS" ] && args+=(--lib-signatures "$DG_LIB_SIGS")
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
         [ "$DG_NO_FP" = "true" ] && args+=(--no-fingerprint)
         for rule in ${DG_IGNORE//,/ }; do args+=(--ignore "$rule"); done

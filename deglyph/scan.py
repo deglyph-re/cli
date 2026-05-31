@@ -70,6 +70,7 @@ RULES: dict[str, tuple[str, str]] = {
     "harden/no-bti-pac": ("note", "ARM BTI / PAC hints are not advertised"),
     "lib/detected": ("note", "Third-party library identified by fingerprint"),
     "cve/known": ("error", "Known CVE against a detected library version"),
+    "cve/not-checked": ("note", "CVE database not checked (offline or unreachable)"),
 }
 
 _LEVEL_RANK = {"note": 0, "warning": 1, "error": 2}
@@ -547,9 +548,10 @@ def _lib_finding(h) -> Finding:
     rule = "lib/detected"
     level, desc = RULES[rule]
     label = f"{h.name} {h.version}" if h.version else h.name
-    return Finding(
-        rule, level, f"{desc}: {label}", "fingerprint", h.offset, len(h.snippet)
-    )
+    msg = f"{desc}: {label} [{h.confidence}]"
+    if h.evidence:
+        msg = f"{msg} ({h.evidence})"
+    return Finding(rule, level, msg, "fingerprint", h.offset, len(h.snippet))
 
 
 def _has_stack_canary(image: Image) -> bool:
@@ -888,6 +890,8 @@ def scan_image(
     hardening: bool = True,
     fingerprint: bool = True,
     cve: bool = False,
+    offline: bool = False,
+    lib_signatures: str | None = None,
     ignore: set[str] | None = None,
     ignore_fp: set[str] | None = None,
     rule_config: dict[str, str] | None = None,
@@ -908,15 +912,16 @@ def scan_image(
         findings += scan_hardening(image)
     lib_hits: list = []
     if fingerprint or cve:
-        from .re.fingerprint import scan_fingerprint
+        from .re.fingerprint import load_signatures, scan_fingerprint
 
-        lib_hits = scan_fingerprint(image, data)
+        sigs = load_signatures(lib_signatures) if lib_signatures else None
+        lib_hits = scan_fingerprint(image, data, signatures=sigs)
         if fingerprint:
             findings += [_lib_finding(h) for h in lib_hits]
     if cve and lib_hits:
         from .cve import scan_cve
 
-        findings += scan_cve(lib_hits)
+        findings += scan_cve(lib_hits, offline=offline)
     if baseline is not None:
         findings += diff_baseline(image, baseline)
     findings = _apply_rule_config(findings, rule_config or {})
@@ -938,6 +943,8 @@ def scan_file(
     hardening: bool = True,
     fingerprint: bool = True,
     cve: bool = False,
+    offline: bool = False,
+    lib_signatures: str | None = None,
     ignore: set[str] | None = None,
     ignore_fp: set[str] | None = None,
     rule_config: dict[str, str] | None = None,
@@ -951,6 +958,8 @@ def scan_file(
         hardening=hardening,
         fingerprint=fingerprint,
         cve=cve,
+        offline=offline,
+        lib_signatures=lib_signatures,
         ignore=ignore,
         ignore_fp=ignore_fp,
         rule_config=rule_config,

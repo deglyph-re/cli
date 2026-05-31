@@ -53,6 +53,9 @@ def test_cyclonedx_shape(code_image):
     assert by_name["zlib"]["version"] == "1.2.13"
     assert by_name["zlib"]["purl"] == "pkg:generic/zlib@1.2.13"
     assert "version" not in by_name["boost"]
+    props = {p["name"]: p["value"] for p in by_name["zlib"]["properties"]}
+    assert props["deglyph:confidence"] == "high"
+    assert props["deglyph:ecosystem"] == "generic"
 
 
 def test_spdx_shape(code_image):
@@ -66,6 +69,9 @@ def test_spdx_shape(code_image):
     # The root + one package per detected lib (deduped on (name, version) string)
     assert "SPDXRef-Package-root" in pkg_ids
     assert any("zlib" in pid for pid in pkg_ids)
+    zlib_pkg = next(p for p in doc["packages"] if p.get("name") == "zlib")
+    assert "confidence=high" in zlib_pkg["comment"]
+    assert "ecosystem=generic" in zlib_pkg["comment"]
     # Every dependency relates back to the root.
     deps = [r for r in doc["relationships"] if r["relationshipType"] == "DEPENDS_ON"]
     assert deps and all(r["spdxElementId"] == "SPDXRef-Package-root" for r in deps)

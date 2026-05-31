@@ -63,6 +63,12 @@ def sbom_cyclonedx(image: Image, hits: list[LibHit], *, sha256: str) -> dict:
         }
         if h.version:
             comp["version"] = h.version
+        # deglyph match metadata: how confident the fingerprint is and which
+        # ecosystem the purl belongs to, so a consumer can weight the hit.
+        comp["properties"] = [
+            {"name": "deglyph:confidence", "value": h.confidence},
+            {"name": "deglyph:ecosystem", "value": h.ecosystem},
+        ]
         components.append(comp)
 
     root_hashes = [{"alg": "SHA-256", "content": sha256}]
@@ -132,6 +138,7 @@ def sbom_spdx(image: Image, hits: list[LibHit], *, sha256: str) -> dict:
         }
         if h.version:
             pkg["versionInfo"] = h.version
+        pkg["comment"] = f"deglyph: confidence={h.confidence}; ecosystem={h.ecosystem}"
         packages.append(pkg)
         relationships.append(
             {

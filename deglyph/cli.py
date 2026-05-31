@@ -289,6 +289,16 @@ def _build_scan_parser() -> argparse.ArgumentParser:
         help="query osv.dev for CVEs against detected libraries (network)",
     )
     ap.add_argument(
+        "--offline",
+        action="store_true",
+        help="never touch the network; report CVEs as not-checked rather than clean",
+    )
+    ap.add_argument(
+        "--lib-signatures",
+        metavar="PATH",
+        help="extra library signature database (JSON) merged with the built-ins",
+    )
+    ap.add_argument(
         "--ignore",
         action="append",
         metavar="RULE",
@@ -369,6 +379,8 @@ def _scan_cli(argv: list[str]) -> int:
                 hardening=not args.no_hardening,
                 fingerprint=not args.no_fingerprint,
                 cve=args.cve,
+                offline=args.offline,
+                lib_signatures=args.lib_signatures,
                 ignore=ignore,
                 ignore_fp=ignore_fp,
                 rule_config=rule_config,
