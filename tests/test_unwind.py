@@ -60,6 +60,30 @@ def test_unwind_starts_seed_confirmed_discovery(host_binary):
         assert any("starts" in e or "table" in e for e in hits[va].evidence)
 
 
+def test_norm_keeps_only_executable_starts():
+    # An unwind entry resolving to a non-executable section (an eh_frame / symbol
+    # row pointing at data) is not a code boundary, so _norm drops it; only the
+    # executable address survives. This keeps unwind_starts consistent with the
+    # executable-only set discover.scan_targets will seed.
+    from deglyph.core.image import Arch, Image, Section
+    from deglyph.re import unwind
+
+    img = Image(path="x", fmt="ELF", arch=Arch.X64, base=0x400000)
+    img.sections.append(
+        Section(
+            name=".text", va=0x401000, size=0x1000, raw_off=0, raw_size=0, flags="RX"
+        )
+    )
+    img.sections.append(
+        Section(
+            name=".rodata", va=0x404000, size=0x1000, raw_off=0, raw_size=0, flags="R"
+        )
+    )
+    assert unwind._norm(img, 0x401010) == 0x401010
+    assert unwind._norm(img, 0x404000) is None
+    assert unwind._norm(img, 0x999999) is None
+
+
 def test_pe_without_pdata_returns_empty():
     # The committed demo.exe is 32-bit x86: SEH, no table-based unwind, so the
     # exception-function source yields nothing (and must not raise).

@@ -15,7 +15,7 @@ the table for the loaded format and returns `(va, source)` pairs:
 For a fat Mach-O, `image._lief` is already the chosen slice, so its table is the
 right one. Each source is wrapped so a malformed table yields `[]` rather than
 aborting discovery. Addresses are normalized to VAs (an RVA below the image base
-is promoted), and only those landing in a known section are kept.
+is promoted), and only those landing in an executable section are kept.
 """
 
 from __future__ import annotations
@@ -23,13 +23,25 @@ from __future__ import annotations
 from ..core.image import Image
 
 
+def _in_exec(image: Image, addr: int) -> bool:
+    """True when `addr` lands in an executable section (a real code boundary)."""
+    sec = image.section_at(addr)
+    return sec is not None and "X" in sec.flags.upper()
+
+
 def _norm(image: Image, addr: int) -> int | None:
-    """Normalize a reported address to a VA inside a mapped section, or None."""
+    """Normalize a reported address to a VA inside an executable section, or None.
+
+    A function start is code, so an unwind entry that resolves outside any
+    executable section (an ELF eh_frame / symbol row pointing at data, a PLT-ish
+    stub) is not a real boundary and is dropped, keeping the list consistent with
+    what `discover.scan_targets` will seed.
+    """
     if addr <= 0:
         return None
-    if image.base and addr < image.base and image.section_at(addr + image.base):
+    if image.base and addr < image.base and _in_exec(image, addr + image.base):
         addr += image.base
-    return addr if image.section_at(addr) else None
+    return addr if _in_exec(image, addr) else None
 
 
 def _macho_starts(b, image: Image) -> list[int]:
