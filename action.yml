@@ -57,6 +57,10 @@ inputs:
     description: "Path to a .deglyphignore suppression file (rule ids, categories, and fingerprint lines)."
     required: false
     default: ""
+  rule-config:
+    description: "Path to a .deglyphrules JSON file of per-rule level overrides."
+    required: false
+    default: ""
   summary:
     description: Write the markdown report to the Actions run summary (every run).
     required: false
@@ -105,6 +109,7 @@ runs:
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
         DG_IGNORE_FILE: ${{ inputs.ignore-file }}
+        DG_RULE_CONFIG: ${{ inputs.rule-config }}
       run: |
         sarif="$DG_SARIF"
         if [ -z "$sarif" ] && [ "$DG_UPLOAD" = "true" ]; then
@@ -114,6 +119,7 @@ runs:
         args=("$DG_PATH" --fail-on "$DG_FAIL_ON")
         [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
         [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
+        [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
@@ -139,10 +145,12 @@ runs:
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
         DG_IGNORE_FILE: ${{ inputs.ignore-file }}
+        DG_RULE_CONFIG: ${{ inputs.rule-config }}
       run: |
         args=("$DG_PATH" --fail-on never --format markdown)
         [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
         [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
+        [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
@@ -165,10 +173,12 @@ runs:
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
         DG_IGNORE_FILE: ${{ inputs.ignore-file }}
+        DG_RULE_CONFIG: ${{ inputs.rule-config }}
       run: |
         args=("$DG_PATH" --fail-on never --format badge --output "$DG_BADGE")
         [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
         [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
+        [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)
@@ -198,10 +208,12 @@ runs:
         DG_NO_FP: ${{ inputs.no-fingerprint }}
         DG_IGNORE: ${{ inputs.ignore }}
         DG_IGNORE_FILE: ${{ inputs.ignore-file }}
+        DG_RULE_CONFIG: ${{ inputs.rule-config }}
       run: |
         args=("$DG_PATH" --fail-on never --format markdown --output "${RUNNER_TEMP}/deglyph-pr.md")
         [ -n "$DG_BASELINE" ] && args+=(--baseline "$DG_BASELINE")
         [ -n "$DG_IGNORE_FILE" ] && args+=(--ignore-file "$DG_IGNORE_FILE")
+        [ -n "$DG_RULE_CONFIG" ] && args+=(--rule-config "$DG_RULE_CONFIG")
         [ "$DG_ENTROPY" = "true" ] && args+=(--entropy)
         [ "$DG_CVE" = "true" ] && args+=(--cve)
         [ "$DG_NO_HARDEN" = "true" ] && args+=(--no-hardening)

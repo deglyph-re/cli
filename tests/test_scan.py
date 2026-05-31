@@ -11,7 +11,7 @@ import pytest
 
 from deglyph import scan
 from deglyph.cli import main
-from deglyph.core.image import Func
+from deglyph.core.image import Func, Image, Section
 
 SAMPLE = os.path.join(os.path.dirname(__file__), "..", "samples", "demo.exe")
 
@@ -316,3 +316,127 @@ def test_cli_sbom_output_file(tmp_path, capsys):
     doc = json.loads(out_path.read_text(encoding="utf-8"))
     assert doc["bomFormat"] == "CycloneDX"
     assert capsys.readouterr().out == ""
+# --- Section 6: category, rule-config, hardening evidence, baseline identity ---
+def test_finding_category_from_rule():
+    from deglyph.scan import _category
+
+    assert _category("harden/no-pie") == "fact"
+    assert _category("lib/detected") == "fact"
+    assert _category("secret/jwt") == "heuristic"
+    assert _category("import/network") == "heuristic"
+    assert _category("diff/added-function") == "policy"
+    assert _category("cve/known") == "policy"
+    # auto-populated on construction
+    assert Finding("secret/jwt", "warning", "x", "y").category == "heuristic"
+
+
+def test_to_json_and_sarif_carry_category():
+    f = Finding("harden/no-pie", "warning", "no PIE", "hardening")
+    doc = to_json([("a.bin", [f])])
+    assert doc["files"][0]["findings"][0]["category"] == "fact"
+    sarif = to_sarif([("a.bin", [f])])
+    res = sarif["runs"][0]["results"][0]
+    assert res["properties"]["category"] == "fact"
+
+
+def test_to_text_groups_by_category():
+    findings = [
+        Finding("harden/no-pie", "warning", "no PIE", "hardening"),
+        Finding("import/network", "note", "net", "import"),
+    ]
+    text = to_text([("a.bin", findings)])
+    assert "Facts" in text and "Heuristics" in text
+    # the fact group appears before the heuristic group
+    assert text.index("Facts") < text.index("Heuristics")
+
+
+def test_rule_config_off_and_retune():
+    from deglyph.scan import _apply_rule_config
+
+    findings = [
+        Finding("harden/no-cfg", "note", "cfg", "hardening"),
+        Finding("harden/unsigned", "note", "unsigned", "hardening"),
+    ]
+    out = _apply_rule_config(
+        findings, {"harden/no-cfg": "off", "harden/unsigned": "error"}
+    )
+    rules = {f.rule: f.level for f in out}
+    assert "harden/no-cfg" not in rules
+    assert rules["harden/unsigned"] == "error"
+
+
+def test_load_rule_config_parses_json(tmp_path):
+    from deglyph.scan import load_rule_config
+
+    p = tmp_path / ".deglyphrules"
+    p.write_text(
+        '{"rules": {"secret/jwt": {"level": "error"}, "harden/no-cfg": '
+        '{"level": "off"}, "bogus": {"level": "nonsense"}}}',
+        encoding="utf-8",
+    )
+    cfg = load_rule_config(str(p))
+    assert cfg == {"secret/jwt": "error", "harden/no-cfg": "off"}
+
+
+def test_load_rule_config_missing_file_is_empty(tmp_path):
+    from deglyph.scan import load_rule_config
+
+    assert load_rule_config(str(tmp_path / "nope.json")) == {}
+
+
+def test_hardening_evidence_in_message():
+    # A synthetic ELF-ish image is hard to build here; assert the _h helper
+    # threads evidence into the message.
+    from deglyph.scan import _h
+
+    f = _h("harden/no-pie", evidence="e_type is ET_EXEC, not ET_DYN")
+    assert "ET_EXEC" in f.message
+    assert f.category == "fact"
+
+
+def test_import_rationale_in_message(code_image):
+    img = code_image(bytes.fromhex("c3"))
+    img.funcs.append(Func(name="VirtualProtect", va=0x2000, kind="import"))
+    img.reindex()
+    hits = scan.scan_imports(img)
+    vp = next(h for h in hits if "VirtualProtect" in h.message)
+    assert "benign" in vp.message
+    assert vp.category == "heuristic"
+
+
+def _scan_img(code: bytes, name: str) -> Image:
+    # a one-section image with one recovered function, for baseline-diff tests.
+    import tempfile
+
+    from deglyph.core.image import Arch
+
+    p = tempfile.mktemp()
+    with open(p, "wb") as fh:
+        fh.write(code)
+    img = Image(path=p, fmt="RAW", arch=Arch.X64, base=0)
+    img.sections.append(
+        Section(
+            name=".text",
+            va=0x1000,
+            size=len(code),
+            raw_off=0,
+            raw_size=len(code),
+            flags="RX",
+        )
+    )
+    img.funcs.append(Func(name=name, va=0x1000, kind="sub"))
+    img.reindex()
+    return img
+
+
+def test_baseline_identity_ignores_sub_va_churn():
+    # Two builds with the same function body but different sub_ names hash to the
+    # same structural identity, so the diff does not see removed + added.
+    # xor eax, eax ; ret
+    code = b"\x31\xc0\xc3"
+    a = _scan_img(code, "sub_1000")
+    b = _scan_img(code, "sub_2000")
+    ida = scan._func_identity(a, 0x1000)
+    assert ida.startswith("shape:") and ida == scan._func_identity(b, 0x1000)
+    fn_diffs = [f for f in scan.diff_baseline(a, b) if "function" in f.rule]
+    assert not fn_diffs

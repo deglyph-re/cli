@@ -303,6 +303,11 @@ def _build_scan_parser() -> argparse.ArgumentParser:
         help="suppression file (default: .deglyphignore in the working directory)",
     )
     ap.add_argument(
+        "--rule-config",
+        metavar="PATH",
+        help="JSON of per-rule level overrides (default: .deglyphrules in the CWD)",
+    )
+    ap.add_argument(
         "--fail-on",
         choices=("note", "warning", "error", "never"),
         default="warning",
@@ -331,6 +336,14 @@ def _collect_ignores(args, scanmod) -> tuple[set[str], set[str]]:
     return ignore, ignore_fp
 
 
+def _collect_rule_config(args, scanmod) -> dict[str, str]:
+    """Load the rule-config JSON (explicit --rule-config, else .deglyphrules)."""
+    path = args.rule_config or os.path.join(os.getcwd(), ".deglyphrules")
+    if args.rule_config or os.path.isfile(path):
+        return scanmod.load_rule_config(path)
+    return {}
+
+
 def _scan_cli(argv: list[str]) -> int:
     """`deglyph scan` - hardening / secret / lib / import / drift scan for CI gating."""
     from . import __version__
@@ -341,6 +354,7 @@ def _scan_cli(argv: list[str]) -> int:
 
     fmt_out = "sarif" if args.sarif else args.fmt_out
     ignore, ignore_fp = _collect_ignores(args, scanmod)
+    rule_config = _collect_rule_config(args, scanmod)
 
     arch = _arch(args.arch)
     results: list[tuple[str, list]] = []
@@ -357,6 +371,7 @@ def _scan_cli(argv: list[str]) -> int:
                 cve=args.cve,
                 ignore=ignore,
                 ignore_fp=ignore_fp,
+                rule_config=rule_config,
             )
         # one unreadable file should not abort the scan
         except Exception as e:

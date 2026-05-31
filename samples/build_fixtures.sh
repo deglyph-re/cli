@@ -19,6 +19,14 @@
 # demo.c: the same crc16 / encode_frame / send_frame / set_volume shapes, so the
 # detectors and discovery have real functions to recover, with no printf so it
 # links freestanding without a sysroot).
+#
+# These fixtures exercise *function recovery*. The hardening-posture matrix (PE
+# +/- ASLR/DEP/CFG/cookie, ELF no/partial/full RELRO/PIE/canary, Mach-O
+# PIE/canary/signature) is NOT built here: each variant needs a different
+# compiler/linker flag set across three cross-toolchains, most unavailable on a
+# dev host. tests/test_hardening.py covers that matrix deterministically with
+# inline fake-LIEF objects (every flag path), so no real per-variant binary is
+# needed.
 
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"

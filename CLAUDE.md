@@ -69,7 +69,7 @@ deglyph/
              cfg.py      bounded recursive-descent CFG per function (basic blocks + undecoded gaps); backs the linear view
              fingerprint.py SIGNATURES table + scan_fingerprint -> LibHit list (zlib/openssl/sqlite/...)
   ai.py      agentic Claude assistant (Anthropic SDK, prompt-cached, opt-in); read-only tools over Image
-  scan.py    headless CI scanner: hardening posture / secrets / libs / risky imports / baseline diff
+  scan.py    headless CI scanner: hardening / secrets / libs / risky imports / baseline diff; every Finding has a category (fact/heuristic/policy) + a rule-config (.deglyphrules) overlay
   sbom.py    CycloneDX 1.5 + SPDX 2.3 emitters; root = scanned binary, components = fingerprinted libs
   cve.py     osv.dev client + on-disk cache (~/.deglyph/cve-cache/) keyed by purl, 24h TTL
   report.py  to_markdown (PR-comment shaped) + to_html (single-file dashboard) over scan results

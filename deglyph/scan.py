@@ -74,6 +74,30 @@ RULES: dict[str, tuple[str, str]] = {
 
 _LEVEL_RANK = {"note": 0, "warning": 1, "error": 2}
 
+# Finding category, by rule-id prefix. Three buckets the report groups by:
+#   fact       a verifiable property of the container (a hardening flag that is
+#              present or absent, a fingerprinted library) -- not a judgment.
+#   heuristic  a pattern match that suggests but does not prove (a credential-
+#              shaped string, an imported capability) -- confirm before acting.
+#   policy     a gate / drift signal (diff vs a baseline, a known CVE) -- whether
+#              it matters is the consumer's policy call.
+_CATEGORY: dict[str, str] = {
+    "harden/": "fact",
+    "lib/": "fact",
+    "secret/": "heuristic",
+    "import/": "heuristic",
+    "diff/": "policy",
+    "cve/": "policy",
+}
+
+
+def _category(rule: str) -> str:
+    """The fact / heuristic / policy bucket for a rule id (by its prefix)."""
+    for prefix, cat in _CATEGORY.items():
+        if rule.startswith(prefix):
+            return cat
+    return "heuristic"
+
 
 @dataclass(slots=True)
 class Finding:
@@ -85,6 +109,12 @@ class Finding:
     # file offset, when known (for SARIF regions)
     off: int | None = None
     length: int = 0
+    # fact | heuristic | policy; defaults from the rule prefix in __post_init__
+    category: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.category:
+            self.category = _category(self.rule)
 
 
 def _entropy(s: str) -> float:
@@ -313,8 +343,39 @@ def _normalize_import(name: str) -> str:
     return n
 
 
+# Why each import capability matters, and where it is routinely benign, so the
+# finding reads as context rather than an accusation. An import is a capability,
+# never proof of misuse.
+_IMPORT_RATIONALE: dict[str, str] = {
+    "import/process-exec": (
+        "spawns processes / shells; benign in launchers, build tools, terminals"
+    ),
+    "import/code-injection": (
+        "writes/executes code in another process; benign in debuggers, "
+        "profilers, hot-patchers, anti-cheat"
+    ),
+    "import/memory-protect": (
+        "changes page protections; benign in JITs, GC runtimes, plugin loaders"
+    ),
+    "import/dynamic-load": (
+        "loads code at runtime; benign in plugin hosts and most large apps"
+    ),
+    "import/network": (
+        "opens network connections; benign in any networked app or updater"
+    ),
+    "import/anti-debug": (
+        "detects a debugger; benign in DRM and crash handlers, common in malware"
+    ),
+}
+
+
 def scan_imports(image: Image) -> list[Finding]:
-    """Flag imported APIs that grant exec, injection, loading, or network capability."""
+    """Flag imported APIs that grant exec, injection, loading, or network capability.
+
+    An import is a *capability*, not a misuse: the message carries why it matters
+    and where it is routinely benign (`_IMPORT_RATIONALE`) so a reviewer triages
+    rather than reacts.
+    """
     out: list[Finding] = []
     for f in image.funcs:
         if f.kind != "import":
@@ -323,7 +384,11 @@ def scan_imports(image: Image) -> list[Finding]:
         if rule is None:
             continue
         level, desc = RULES[rule]
-        out.append(Finding(rule, level, f"{desc}: {f.name}", "import"))
+        rationale = _IMPORT_RATIONALE.get(rule, "")
+        msg = f"{desc}: {f.name}"
+        if rationale:
+            msg = f"{msg} ({rationale})"
+        out.append(Finding(rule, level, msg, "import"))
     return out
 
 
@@ -352,9 +417,18 @@ _CANARY_SYMBOLS = {
 }
 
 
-def _h(rule: str, *, msg: str | None = None) -> Finding:
+def _h(rule: str, *, msg: str | None = None, evidence: str | None = None) -> Finding:
+    """A hardening finding, with optional decoded evidence from the container.
+
+    `evidence` is the concrete flag / segment fact behind the verdict (e.g.
+    `DllCharacteristics=0x8160 lacks DYNAMIC_BASE`), appended so the reader sees
+    why the protection is reported missing rather than trust the label alone.
+    """
     level, desc = RULES[rule]
-    return Finding(rule, level, msg or desc, "hardening")
+    text = msg or desc
+    if evidence:
+        text = f"{text} ({evidence})"
+    return Finding(rule, level, text, "hardening")
 
 
 def scan_hardening(image: Image) -> list[Finding]:
@@ -385,14 +459,20 @@ def _hardening_pe(image: Image, b) -> list[Finding]:
     except Exception:
         dll = 0
 
+    dllc = f"DllCharacteristics={dll:#06x}"
     if not dll & _PE_DYNAMIC_BASE:
-        out.append(_h("harden/no-aslr"))
+        out.append(_h("harden/no-aslr", evidence=f"{dllc} lacks DYNAMIC_BASE (0x40)"))
     if not dll & _PE_NX_COMPAT:
-        out.append(_h("harden/no-dep"))
+        out.append(_h("harden/no-dep", evidence=f"{dllc} lacks NX_COMPAT (0x100)"))
     if not dll & _PE_GUARD_CF:
-        out.append(_h("harden/no-cfg"))
+        out.append(_h("harden/no-cfg", evidence=f"{dllc} lacks GUARD_CF (0x4000)"))
     if image.arch.bits == 64 and not dll & _PE_HIGH_ENTROPY_VA:
-        out.append(_h("harden/no-high-entropy-va"))
+        out.append(
+            _h(
+                "harden/no-high-entropy-va",
+                evidence=f"{dllc} lacks HIGH_ENTROPY_VA (0x20)",
+            )
+        )
 
     # SafeSEH only applies to 32-bit images that use SEH.
     if image.arch.bits == 32 and not dll & _PE_NO_SEH:
@@ -407,10 +487,17 @@ def _hardening_pe(image: Image, b) -> list[Finding]:
     # A stripped release PE carries no canary symbol; the load configuration's
     # security cookie is the authoritative /GS signal.
     if not _has_stack_canary(image) and not _pe_has_security_cookie(b):
-        out.append(_h("harden/no-stack-canary"))
+        out.append(
+            _h(
+                "harden/no-stack-canary",
+                evidence="no __security_cookie / canary symbol",
+            )
+        )
 
     if not _pe_is_signed(b):
-        out.append(_h("harden/unsigned"))
+        out.append(
+            _h("harden/unsigned", evidence="no Authenticode certificate table")
+        )
 
     return out
 
@@ -419,24 +506,30 @@ def _hardening_elf(image: Image, b) -> list[Finding]:
     out: list[Finding] = []
 
     if not _elf_is_pie(b):
-        out.append(_h("harden/no-pie"))
+        out.append(_h("harden/no-pie", evidence="e_type is ET_EXEC, not ET_DYN"))
     if _elf_stack_is_executable(b):
-        out.append(_h("harden/no-dep"))
+        out.append(_h("harden/no-dep", evidence="PT_GNU_STACK segment is executable"))
 
     relro = _elf_relro_level(b)
     if relro == "none":
-        out.append(_h("harden/no-relro"))
+        out.append(_h("harden/no-relro", evidence="no PT_GNU_RELRO segment"))
     elif relro == "partial":
-        out.append(_h("harden/partial-relro"))
+        out.append(
+            _h("harden/partial-relro", evidence="PT_GNU_RELRO present but no BIND_NOW")
+        )
 
     if not _has_stack_canary(image):
-        out.append(_h("harden/no-stack-canary"))
+        out.append(
+            _h("harden/no-stack-canary", evidence="no __stack_chk_fail symbol")
+        )
     if not _elf_has_fortify(image):
-        out.append(_h("harden/no-fortify"))
+        out.append(_h("harden/no-fortify", evidence="no *_chk fortified-libc symbols"))
 
     if image.arch.bits == 64 and image.arch.value == "arm64":
         if not _elf_has_bti_or_pac(b):
-            out.append(_h("harden/no-bti-pac"))
+            out.append(
+                _h("harden/no-bti-pac", evidence="no GNU_PROPERTY_AARCH64 BTI/PAC note")
+            )
 
     return out
 
@@ -445,11 +538,13 @@ def _hardening_macho(image: Image, b) -> list[Finding]:
     out: list[Finding] = []
 
     if not _macho_is_pie(b):
-        out.append(_h("harden/no-pie"))
+        out.append(_h("harden/no-pie", evidence="MH_PIE not set in mach_header.flags"))
     if not _has_stack_canary(image):
-        out.append(_h("harden/no-stack-canary"))
+        out.append(
+            _h("harden/no-stack-canary", evidence="no ___stack_chk_fail symbol")
+        )
     if not _macho_is_signed(b):
-        out.append(_h("harden/unsigned"))
+        out.append(_h("harden/unsigned", evidence="no LC_CODE_SIGNATURE load command"))
 
     return out
 
@@ -620,22 +715,77 @@ def _name_set(image: Image, kind: str | None) -> set[str]:
     return {f.name for f in image.funcs if kind is None or f.kind == kind}
 
 
+# Number of leading instructions hashed for a function's structural identity.
+_IDENTITY_INSNS = 24
+
+
+def _func_identity(image: Image, va: int) -> str:
+    """A relocation-stable identity for the function at `va` (for diffing).
+
+    A real symbol name is used as-is; a recovered `sub_<va>` name churns across
+    builds (the VA moves), so instead hash the sequence of leading instruction
+    *mnemonics*. Mnemonics carry no addresses or immediates, so a function that
+    only moved (relocated) keeps its identity, while a changed body does not.
+    Falls back to the name if disassembly yields nothing.
+    """
+    try:
+        from .re.cfg import function_insns
+
+        insns = function_insns(image, va, max_insns=_IDENTITY_INSNS)
+        mnems = [i.mnemonic for i in insns[:_IDENTITY_INSNS]]
+        if mnems:
+            digest = hashlib.sha1(" ".join(mnems).encode("utf-8", "replace"))
+            return "shape:" + digest.hexdigest()[:16]
+    except Exception:
+        pass
+    return ""
+
+
+def _func_identities(image: Image) -> dict[str, str]:
+    """Map each non-import function's display name to its structural identity.
+
+    A named function maps to its own name (stable already); a `sub_*` maps to its
+    shape hash so a moved-but-identical function is not seen as removed+added.
+    """
+    out: dict[str, str] = {}
+    for f in image.funcs:
+        if f.kind == "import":
+            continue
+        if f.name.startswith("sub_"):
+            ident = _func_identity(image, f.va) or f.name
+        else:
+            ident = f.name
+        out[f.name] = ident
+    return out
+
+
 def diff_baseline(image: Image, baseline: Image) -> list[Finding]:
-    """Report functions and imports that differ from a baseline build."""
+    """Report functions and imports that differ from a baseline build.
+
+    Imports diff by name (they are always named). Functions diff by a stable
+    identity: a real symbol by name, a stripped `sub_*` by a relocation-immune
+    structural hash (`_func_identity`), so a function that merely moved between
+    builds is not reported as removed + added.
+    """
     out: list[Finding] = []
     cur_imp, base_imp = _name_set(image, "import"), _name_set(baseline, "import")
     for name in sorted(cur_imp - base_imp):
         level, desc = RULES["diff/added-import"]
         out.append(Finding("diff/added-import", level, f"{desc}: {name}", "diff"))
 
-    cur_fn = _name_set(image, None) - cur_imp
-    base_fn = _name_set(baseline, None) - base_imp
-    for rule, names in (
-        ("diff/added-function", cur_fn - base_fn),
-        ("diff/removed-function", base_fn - cur_fn),
+    cur = _func_identities(image)
+    base = _func_identities(baseline)
+    cur_ids, base_ids = set(cur.values()), set(base.values())
+    # name-by-identity so the message shows a readable name for each changed id
+    cur_by_id = {ident: nm for nm, ident in cur.items()}
+    base_by_id = {ident: nm for nm, ident in base.items()}
+    for rule, ids, names_by_id in (
+        ("diff/added-function", cur_ids - base_ids, cur_by_id),
+        ("diff/removed-function", base_ids - cur_ids, base_by_id),
     ):
         level, desc = RULES[rule]
-        for name in sorted(names):
+        for ident in sorted(ids):
+            name = names_by_id.get(ident, ident)
             out.append(Finding(rule, level, f"{desc}: {name}", "diff"))
     return out
 
@@ -659,6 +809,48 @@ def fingerprint_of(f: Finding) -> str:
     """
     digest = hashlib.sha1(f"{f.rule}|{f.message}".encode("utf-8", "replace"))
     return digest.hexdigest()[:12]
+
+
+def load_rule_config(path: str) -> dict[str, str]:
+    """Parse a `.deglyphrules` JSON file into a rule-id -> level override map.
+
+    Format: `{"rules": {"harden/no-cfg": {"level": "off"}, "secret/jwt":
+    {"level": "error"}}}`. A level of `off` suppresses the rule; any of
+    note/warning/error retunes it (so a consumer can promote or demote a rule's
+    severity for their gate without editing the tool). A missing or malformed
+    file yields an empty map, so the scan still runs with defaults.
+    """
+    out: dict[str, str] = {}
+    try:
+        import json
+
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        rules = doc.get("rules", {}) if isinstance(doc, dict) else {}
+        for rule, spec in rules.items():
+            level = spec.get("level") if isinstance(spec, dict) else None
+            if level in ("off", "note", "warning", "error"):
+                out[rule] = level
+    except (OSError, ValueError, AttributeError):
+        pass
+    return out
+
+
+def _apply_rule_config(
+    findings: list[Finding], config: dict[str, str]
+) -> list[Finding]:
+    """Drop `off` rules and retune levels per a rule-config map."""
+    if not config:
+        return findings
+    out: list[Finding] = []
+    for f in findings:
+        level = config.get(f.rule)
+        if level == "off":
+            continue
+        if level in ("note", "warning", "error"):
+            f.level = level
+        out.append(f)
+    return out
 
 
 def load_ignore_file(path: str) -> tuple[set[str], set[str]]:
@@ -704,6 +896,7 @@ def scan_image(
     cve: bool = False,
     ignore: set[str] | None = None,
     ignore_fp: set[str] | None = None,
+    rule_config: dict[str, str] | None = None,
 ) -> list[Finding]:
     """Run every check over a loaded image and return the merged findings.
 
@@ -786,14 +979,30 @@ def iter_targets(path: str) -> list[str]:
 # --- output -----------------------------------------------------------------
 
 
+# Report order and headings for the three finding categories.
+_CATEGORY_ORDER = ("fact", "heuristic", "policy")
+_CATEGORY_LABEL = {
+    "fact": "Facts (verifiable container properties)",
+    "heuristic": "Heuristics (patterns to confirm, not proof)",
+    "policy": "Policy (drift / known-CVE gates)",
+}
+
+
 def to_text(results: list[tuple[str, list[Finding]]]) -> str:
-    """Human-readable report; one section per scanned file."""
+    """Human-readable report; one section per file, grouped fact/heuristic/policy."""
     lines: list[str] = []
     total = 0
     for path, findings in results:
         lines.append(f"{path}: {len(findings)} finding(s)")
-        for f in findings:
-            lines.append(f"  [{f.level:<7}] {f.where:<14} {f.rule}  {f.message}")
+        for cat in _CATEGORY_ORDER:
+            group = [f for f in findings if f.category == cat]
+            if not group:
+                continue
+            lines.append(f"  {_CATEGORY_LABEL[cat]}")
+            for f in group:
+                lines.append(
+                    f"    [{f.level:<7}] {f.where:<14} {f.rule}  {f.message}"
+                )
         total += len(findings)
     lines.append(f"\n{total} finding(s) across {len(results)} file(s)")
     return "\n".join(lines)
@@ -814,6 +1023,7 @@ def to_json(results: list[tuple[str, list[Finding]]], *, version: str = "0") -> 
                 {
                     "rule": f.rule,
                     "level": f.level,
+                    "category": f.category,
                     "message": f.message,
                     "where": f.where,
                     "offset": f.off,
@@ -867,6 +1077,7 @@ def to_sarif(results: list[tuple[str, list[Finding]]], *, version: str = "0") ->
                     "level": f.level,
                     "message": {"text": f.message},
                     "locations": [{"physicalLocation": phys}],
+                    "properties": {"category": f.category},
                 }
             )
     return {
