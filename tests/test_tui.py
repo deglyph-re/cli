@@ -1579,3 +1579,45 @@ def test_compare_view_reports_self_compare(host_binary, tmp_path, monkeypatch):
             await pilot.pause()
 
     asyncio.run(scenario())
+
+
+def test_export_ai_investigation_writes_redacted_json(
+    host_binary, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            app._assistant._client = _FakeClient()
+            app._select_func_node(_first_code_va(app))
+            await pilot.pause()
+            await pilot.press("i")
+            await pilot.pause()
+            app.query_one("#ai-input", Input).value = "what is this?"
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            # the worker's investigation was captured for export
+            inv = app._last_ai_investigation
+            assert isinstance(inv, dict)
+            assert inv.get("redacted") is True
+            assert set(inv) >= {"context", "question", "answer", "transcript"}
+            # exporting writes a JSON file in the CWD
+            import json
+            import os
+
+            monkeypatch.chdir(tmp_path)
+            app.action_export_ai()
+            await pilot.pause()
+            written = [
+                f
+                for f in os.listdir(tmp_path)
+                if f.endswith(".json") and f.startswith("ai_investigation_")
+            ]
+            assert written
+            doc = json.loads(open(tmp_path / written[0], encoding="utf-8").read())
+            assert doc["redacted"] is True
+
+    asyncio.run(scenario())

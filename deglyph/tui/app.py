@@ -936,6 +936,9 @@ class DeglyphApp(App):
         self._assistant = Assistant()
         self._ai_va: int | None = None
         self._ai_log = Text()
+        # Redacted record of the most recent assistant investigation (question,
+        # answer, tool transcript), captured from the worker for export.
+        self._last_ai_investigation: dict | None = None
         # animates the "thinking" spinner while a reply loads
         self._ai_timer = None
         self._ai_spin = 0
@@ -2845,6 +2848,12 @@ class DeglyphApp(App):
             )
             return
         renames = worker.consume_renames()
+        # Capture the worker's investigation (question, answer, redacted
+        # transcript) so `action_export_ai` can save the last one.
+        try:
+            self._last_ai_investigation = worker.export_investigation()
+        except Exception:
+            self._last_ai_investigation = None
         self.call_from_thread(
             self._ai_reply,
             origin,
@@ -2893,6 +2902,31 @@ class DeglyphApp(App):
         self._ai_append("deglyph", "[stopped]", DIM)
         self._ai_stop_thinking()
         self._ai_refresh_stop_btn()
+
+    def action_export_ai(self) -> None:
+        """Write the last assistant investigation (redacted) to the CWD as JSON."""
+        inv = self._last_ai_investigation
+        if not inv:
+            self.query_one("#status", Static).update(
+                Text(" No AI investigation to export yet", style=DIM)
+            )
+            return
+        ctx = inv.get("context") or os.path.basename(
+            self.image.path if self.image else ""
+        )
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", ctx)[:60] or "investigation"
+        out = os.path.abspath(f"ai_investigation_{safe}.json")
+        try:
+            with open(out, "w", encoding="utf-8") as fh:
+                json.dump(inv, fh, indent=2)
+        except OSError as e:
+            self.query_one("#status", Static).update(
+                Text(f" Could not write investigation: {e}", style="red")
+            )
+            return
+        self.query_one("#status", Static).update(
+            Text(f" Wrote {os.path.basename(out)}", style=GOLD)
+        )
 
     def _start_ai_install(self, spec: str) -> None:
         """Disable the button, show progress, and run pip on a worker."""
@@ -3461,6 +3495,11 @@ class DeglyphApp(App):
             "Compare with build…",
             "Diff functions and imports against a second binary",
             self.action_compare,
+        )
+        yield SystemCommand(
+            "Export AI investigation",
+            "Save the last assistant investigation (redacted) to the CWD",
+            self.action_export_ai,
         )
         yield SystemCommand(
             "AI provider…",
