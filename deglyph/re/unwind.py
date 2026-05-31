@@ -72,7 +72,7 @@ def _elf_starts(b, image: Image) -> list[int]:
 _SOURCES = {
     "MachO": ("function-starts table", _macho_starts),
     "PE": ("exception table (.pdata)", _pe_starts),
-    "ELF": ("eh_frame / symbols", _elf_starts),
+    "ELF": ("eh_frame / symbol table", _elf_starts),
 }
 
 
