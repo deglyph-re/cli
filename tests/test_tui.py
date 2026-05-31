@@ -1414,6 +1414,29 @@ def test_candidate_sub_flagged_in_tree_and_info(host_binary, tmp_path, monkeypat
     asyncio.run(scenario())
 
 
+def test_user_renamed_function_is_visually_distinct(host_binary, tmp_path, monkeypatch):
+    """A user rename marks the leaf and Info pane apart from a container symbol."""
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    from deglyph.tui.glyphs import G
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            va = _first_code_va(app)
+            # a container-named function carries no user marker
+            assert G["user"] not in app._va_nodes[va].label.plain
+            # after a user rename, the leaf shows the marker and Info says "user"
+            app._anno.names[va] = "my_named_fn"
+            app._apply_filter()
+            await pilot.pause()
+            assert G["user"] in app._va_nodes[va].label.plain
+            app._render_func_info(app.image.func_at(va))
+            assert "user" in _pane_text(app, "#info")
+
+    asyncio.run(scenario())
+
+
 def test_session_view_state_captured_and_restored(host_binary, tmp_path, monkeypatch):
     monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
 

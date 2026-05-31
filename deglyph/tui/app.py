@@ -1536,6 +1536,10 @@ class DeglyphApp(App):
         # candidate boundary is never read as a confirmed one.
         if getattr(func, "is_candidate", False):
             label.append(f" {G['candidate']}", style="yellow")
+        # A user-renamed function carries a marker so a hand-given name reads
+        # apart from a container-provided symbol (a user annotation vs a fact).
+        if func.va in self._anno.names:
+            label.append(f" {G['user']}", style=ACCENT)
         leaf = parent.add_leaf(label, data=idx)
         # last writer wins, matching func_at when two Funcs share a VA
         self._va_nodes[func.va] = leaf
@@ -1933,6 +1937,8 @@ class DeglyphApp(App):
         if func.va in self._anno.bookmarks:
             t.append(f"  {'bookmark':<12}yes\n", style=GOLD)
         if func.va in self._anno.names:
+            t.append(f"  {'name from':<12}", style="#d9cbac")
+            t.append("user\n", style=ACCENT)
             t.append(f"  {'original':<12}{func.display}\n", style=DIM)
         t.append(f"  {'va':<12}{func.va:#x}\n", style=DIM)
         t.append(f"  {'kind':<12}{func.kind}\n", style=DIM)
