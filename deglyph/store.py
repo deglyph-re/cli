@@ -42,9 +42,16 @@ class Annotations:
     # AI chats keyed by resolved-implementation VA; value is a list of plain
     # message dicts (already JSON-serializable by the time it reaches here).
     chats: dict[int, list] = field(default_factory=dict)
+    # Session UI state (filter string, active tab, selected VA). A binary with
+    # only a saved view and no edits is still worth reopening, so is_empty()
+    # counts it. Analysis results are recomputed on demand, never persisted
+    # here: caching them risks serving stale facts after a rebuild.
+    view: dict = field(default_factory=dict)
 
     def is_empty(self) -> bool:
-        return not (self.names or self.comments or self.bookmarks or self.chats)
+        return not (
+            self.names or self.comments or self.bookmarks or self.chats or self.view
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -53,6 +60,7 @@ class Annotations:
             "comments": {hex(k): v for k, v in sorted(self.comments.items())},
             "bookmarks": [hex(v) for v in sorted(self.bookmarks)],
             "chats": {hex(k): v for k, v in sorted(self.chats.items())},
+            "view": self.view,
         }
 
     def save(self) -> None:
@@ -117,6 +125,35 @@ def load(binary_path: str) -> Annotations:
         a.comments = {int(k, 16): v for k, v in d.get("comments", {}).items()}
         a.bookmarks = {int(v, 16) for v in d.get("bookmarks", [])}
         a.chats = {int(k, 16): v for k, v in d.get("chats", {}).items()}
+        a.view = _viewdict(d.get("view", {}))
     except (FileNotFoundError, ValueError, AttributeError, TypeError, OSError):
         return Annotations(path=binary_path)
     return a
+
+
+def _viewdict(raw: object) -> dict:
+    """Sanitize a persisted session-view payload; never raise on bad input.
+
+    A malformed `view` must not break startup, so each field is type-checked
+    and dropped if wrong; `selected_va` accepts a plain int or a hex string.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    filt = raw.get("filter")
+    if isinstance(filt, str):
+        out["filter"] = filt
+    tab = raw.get("tab")
+    if isinstance(tab, str):
+        out["tab"] = tab
+    va = raw.get("selected_va")
+    if isinstance(va, bool):
+        pass
+    elif isinstance(va, int):
+        out["selected_va"] = va
+    elif isinstance(va, str):
+        try:
+            out["selected_va"] = int(va, 16)
+        except ValueError:
+            pass
+    return out

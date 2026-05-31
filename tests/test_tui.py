@@ -15,6 +15,7 @@ from textual.widgets import Input, Static, TabbedContent, Tree
 
 from deglyph.re import thunk_chain
 from deglyph.store import Annotations
+from deglyph.store import load as load_annotations
 from deglyph.tui.app import (
     _ITEM_BINARY,
     AboutDialog,
@@ -1361,5 +1362,44 @@ def test_candidate_sub_flagged_in_tree_and_info(host_binary, tmp_path, monkeypat
             info = _pane_text(app, "#info")
             assert "candidate" in info
             assert "tail jmp at 0x1004" in info
+
+    asyncio.run(scenario())
+
+
+def test_session_view_state_captured_and_restored(host_binary, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            va = _first_code_va(app)
+            assert va is not None
+            app._select_func_node(va)
+            await pilot.pause()
+            app._filter = "a"
+            app.query_one("#tabs", TabbedContent).active = "tab-analysis"
+            await pilot.pause()
+            # capture reflects the live filter / tab / selection
+            view = app._capture_view_state()
+            assert view == {"filter": "a", "tab": "tab-analysis", "selected_va": va}
+            # it round-trips through the sidecar
+            app._autosave()
+            assert load_annotations(host_binary).view == view
+
+            # restore reapplies a saved view onto the running app. The selection
+            # is checked without a filter, so the restored function is visible in
+            # the tree (a filter that hides it would defeat the cursor restore).
+            app._filter = "zzz-no-match"
+            app._anno.view = {"selected_va": va}
+            app._restore_view_state()
+            await pilot.pause()
+            cur = app._current()
+            assert cur is not None and cur.va == va
+            # a saved filter is reapplied to the search box
+            app._anno.view = {"filter": "a"}
+            app._restore_view_state()
+            await pilot.pause()
+            assert app._filter == "a"
 
     asyncio.run(scenario())

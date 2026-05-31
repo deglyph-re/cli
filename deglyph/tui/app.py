@@ -1110,6 +1110,9 @@ class DeglyphApp(App):
         # sections as soon as the user lands; the tree still opens collapsed,
         # but with this leaf selected the welcome view is the binary metadata.
         self._select_item((_ITEM_BINARY, None))
+        # A restored session reapplies its saved filter / tab / selection.
+        if restore:
+            self._restore_view_state()
         if self._discover and not getattr(self.image, "_discovered", False):
             self._start_discovery_spinner()
             self._discover_worker()
@@ -1150,6 +1153,8 @@ class DeglyphApp(App):
             self._apply_filter()
             if keep is not None:
                 self._select_item(keep)
+            # the adopted context may carry a saved filter / tab / selection
+            self._restore_view_state()
             # 'chats' reflects the restored conversations
             self._refresh_toolbar()
         self._pending_context = None
@@ -3340,10 +3345,67 @@ class DeglyphApp(App):
         # the 'chats' control may have just become active
         self._refresh_toolbar()
 
+    def _capture_view_state(self) -> dict:
+        """The current session UI state: filter, active tab, selected function VA.
+
+        Stored in the sidecar so reopening a binary lands on the same search,
+        tab, and function the user left. Only a function selection is recorded
+        (the binary / section / string leaves rebuild deterministically).
+        """
+        view: dict = {}
+        flt = self._filter.strip()
+        if flt:
+            view["filter"] = flt
+        try:
+            active = self.query_one("#tabs", TabbedContent).active
+        except Exception:
+            active = ""
+        if active:
+            view["tab"] = active
+        cur = self._current()
+        if cur is not None:
+            view["selected_va"] = cur.va
+        return view
+
+    def _restore_view_state(self) -> None:
+        """Reapply a saved session view (filter, tab, selection) after a load."""
+        view = self._anno.view or {}
+        if not view:
+            return
+        flt = view.get("filter")
+        if isinstance(flt, str) and flt:
+            self._filter = flt
+            try:
+                box = self.query_one("#search", Input)
+                self._input_locked = True
+                box.value = flt
+                self._input_locked = False
+            except Exception:
+                pass
+            self._apply_filter()
+        va = view.get("selected_va")
+        if isinstance(va, int):
+            self._select_func_node(va)
+        # The tab is set last: selecting a function re-runs the per-kind tab
+        # gate, which would otherwise override a restored tab. Reapply it both
+        # now and after the next refresh so it wins over the selection handler.
+        tab = view.get("tab")
+        if isinstance(tab, str) and tab:
+            self._apply_restored_tab(tab)
+            self.call_after_refresh(self._apply_restored_tab, tab)
+
+    def _apply_restored_tab(self, tab: str) -> None:
+        """Activate a restored tab if it is currently a valid choice."""
+        try:
+            self.query_one("#tabs", TabbedContent).active = tab
+        except Exception:
+            pass
+
     def _autosave(self) -> None:
         """Persist the annotation context on the way out (only if it has content)."""
         a = self._anno
         a.chats = self._collect_chats()
+        a.view = self._capture_view_state()
         if not a.is_empty():
             a.save()
 

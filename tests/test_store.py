@@ -97,3 +97,46 @@ def test_keys_are_hex_strings(tmp_path, monkeypatch):
     monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
     a = Annotations(path="/b.bin", names={0x140001000: "f"})
     assert a.to_dict()["names"] == {"0x140001000": "f"}
+
+
+def test_view_state_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    a = Annotations(path="/v.bin")
+    a.view = {"filter": "enc", "tab": "tab-analysis", "selected_va": 0x1000}
+    # a saved view is work worth reopening on its own
+    assert not a.is_empty()
+    a.save()
+    b = load("/v.bin")
+    assert b.view == {"filter": "enc", "tab": "tab-analysis", "selected_va": 0x1000}
+
+
+def test_view_state_sanitizes_bad_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    import json
+    import os
+
+    p = sidecar_path("/v2.bin")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as fh:
+        json.dump(
+            {
+                "binary": "/v2.bin",
+                "view": {"filter": 5, "tab": "tab-info", "selected_va": "0x2000"},
+            },
+            fh,
+        )
+    a = load("/v2.bin")
+    # a non-string filter is dropped; a hex-string selected_va is parsed to int
+    assert a.view == {"tab": "tab-info", "selected_va": 0x2000}
+
+
+def test_view_state_non_dict_is_dropped(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    import json
+    import os
+
+    p = sidecar_path("/v3.bin")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as fh:
+        json.dump({"binary": "/v3.bin", "view": "not-a-dict"}, fh)
+    assert load("/v3.bin").view == {}
