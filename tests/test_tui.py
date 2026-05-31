@@ -1195,7 +1195,14 @@ def test_ai_renames_persist_and_show_in_tree(host_binary, tmp_path, monkeypatch)
 
         def create(self, **kw):
             self.calls += 1
+            # Inspect the function first: a rename is gated on prior inspection
+            # of that VA this turn, mirroring how the agent actually works.
             if self.calls == 1:
+                return _LoopResp(
+                    [_ToolUse("disassemble", {"target": f"{self._target_va:#x}"})],
+                    "tool_use",
+                )
+            if self.calls == 2:
                 return _LoopResp(
                     [
                         _ToolUse(

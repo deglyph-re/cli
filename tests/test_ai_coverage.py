@@ -748,6 +748,8 @@ def test_ensure_client_constructs_anthropic(tmp_path, monkeypatch):
 def test_rename_tool_records_rename_and_overrides_display(code_image):
     """Calling rename_function records the new name and influences later tools."""
     a, img = _assistant_with_code(code_image, "c3")
+    # a rename is gated on prior inspection of the function this turn
+    a._run_tool("disassemble", {"target": "0x1000"})
     out = a._run_tool("rename_function", {"target": "0x1000", "new_name": "WinMain"})
     assert "renamed" in out and "WinMain" in out
     # the override applies to subsequent tool output in the same turn
@@ -761,6 +763,7 @@ def test_rename_tool_records_rename_and_overrides_display(code_image):
 def test_rename_tool_resolves_by_current_name(code_image):
     """Once renamed, the same target can be referenced by its new name."""
     a, _ = _assistant_with_code(code_image, "c3")
+    a._run_tool("disassemble", {"target": "0x1000"})
     a._run_tool("rename_function", {"target": "0x1000", "new_name": "init_codec"})
     # the second rename targets the same function by its new name
     out = a._run_tool(
