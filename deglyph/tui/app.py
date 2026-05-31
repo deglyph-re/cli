@@ -56,6 +56,7 @@ from ..re import (
     add_discovered,
     call_immediate_args,
     call_tree,
+    callees_of,
     callers_of,
     data_xrefs_to,
     detect_crc_loops,
@@ -869,6 +870,8 @@ class DeglyphApp(App):
         Binding("b", "bookmark", "Bookmark"),
         Binding("semicolon", "comment", "Add Note…"),
         Binding("y", "copy", "Copy"),
+        Binding("Y", "copy_address", "Copy addr", show=False),
+        Binding("e", "export_report", "Export report", show=False),
         # help
         Binding("f1,question_mark", "about", "About"),
         # hidden cursor movement
@@ -3071,6 +3074,109 @@ class DeglyphApp(App):
             Text(f" Copied {len(text)} chars to clipboard ({tab[4:]})", style=GOLD)
         )
 
+    def action_copy_address(self) -> None:
+        """Copy the selected function's virtual address to the clipboard."""
+        cur = self._current()
+        if cur is None:
+            self.query_one("#status", Static).update(
+                Text(" Select a function to copy its address", style=DIM)
+            )
+            return
+        text = f"{cur.va:#x}"
+        self.copy_to_clipboard(text)
+        self.query_one("#status", Static).update(
+            Text(f" Copied {text} to clipboard", style=GOLD)
+        )
+
+    def _function_report(self, func) -> str:
+        """A plain-text report for `func`: header, disassembly, analysis, xrefs.
+
+        Pure text (no Rich styling) so it can be written to a file or piped into
+        another tool. The disassembly and detector lines are the same the panes
+        show, flattened; detector hits stay labeled as heuristics.
+        """
+        img = self.image
+        real = thunk_chain(img, func.va)[-1]
+        name = self._disp(func)
+        user_named = " (user-named)" if func.va in self._anno.names else ""
+        lines = [
+            f"# {name}  {func.va:#x}  ({func.kind}){user_named}",
+            f"confidence: {func.confidence}",
+        ]
+        if real != func.va:
+            lines.append(f"resolved implementation: {real:#x}")
+        lines.append("")
+        lines.append("## Disassembly")
+        lines.append(self._ai_disasm_text(func.va) or "(none)")
+
+        lines.append("")
+        lines.append("## Analysis (heuristic; confirm in the disassembly)")
+        stores = immediate_stores(img, real)
+        lines.append("immediate stores:")
+        if not stores:
+            lines.append("  (none)")
+        for s in stores[:24]:
+            where = "abs" if s.is_absolute else f"{s.base}{_signed_disp(s.signed_disp)}"
+            lines.append(
+                f"  {s.addr:#012x}  [{where}] .{s.size} = {s.value:#04x} "
+                f"({s.evidence.confidence})"
+            )
+        args = call_immediate_args(img, real)
+        lines.append("call-argument immediates:")
+        if not args:
+            lines.append("  (none)")
+        for a in args[:16]:
+            lines.append(
+                f"  {a.call_addr:#012x}  {a.reg} = {a.value:#04x} "
+                f"({a.evidence.confidence})"
+            )
+        crcs = detect_crc_loops(img, real)
+        lines.append("crc / checksum loops:")
+        if not crcs:
+            lines.append("  (none)")
+        for c in crcs:
+            polys = ", ".join(f"{p:#x}" for p in c.polys) or "none"
+            lines.append(f"  {c.kind}: polys [{polys}]")
+        consts = function_constants(img, real)
+        top = ", ".join(f"{v:#x}" for v, _ in consts.most_common(8))
+        lines.append(f"constants: {top or '(none)'}")
+
+        lines.append("")
+        lines.append("## Cross-references")
+        callers = [self._report_name(c) for c in callers_of(img, func.va)[:30]]
+        callees = [self._report_name(c) for c in callees_of(img, func.va)[:30]]
+        lines.append("callers: " + (", ".join(callers) or "(none)"))
+        lines.append("callees: " + (", ".join(callees) or "(none)"))
+        return "\n".join(lines)
+
+    def _report_name(self, va: int) -> str:
+        """A display name for an address in a report, or the bare VA."""
+        f = self.image.func_at(va) or self.image.nearest_func(va)
+        return self._disp(f) if f else f"{va:#x}"
+
+    def action_export_report(self) -> None:
+        """Write a plain-text report for the selected function to the CWD."""
+        cur = self._current()
+        if cur is None:
+            self.query_one("#status", Static).update(
+                Text(" Select a function to export a report", style=DIM)
+            )
+            return
+        report = self._function_report(cur)
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", self._disp(cur))[:60] or "func"
+        out = os.path.abspath(f"{safe}_{cur.va:#x}.report.txt")
+        try:
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write(report)
+        except OSError as e:
+            self.query_one("#status", Static).update(
+                Text(f" Could not write report: {e}", style="red")
+            )
+            return
+        self.query_one("#status", Static).update(
+            Text(f" Wrote {os.path.basename(out)}", style=GOLD)
+        )
+
     def action_graph_center(self, va: int) -> None:
         """Click handler for a graph node: recenter the call graph on it."""
         self._graph_recenter(va)
@@ -3099,6 +3205,21 @@ class DeglyphApp(App):
         keys_cmd = builtin.pop("Keys", None)
         if keys_cmd is not None:
             yield keys_cmd
+        yield SystemCommand(
+            "Copy address",
+            "Copy the selected function's address to the clipboard",
+            self.action_copy_address,
+        )
+        yield SystemCommand(
+            "Copy current pane",
+            "Copy the active detail pane to the clipboard",
+            self.action_copy,
+        )
+        yield SystemCommand(
+            "Export function report",
+            "Write a plain-text report (disassembly, analysis, xrefs) to the CWD",
+            self.action_export_report,
+        )
         yield SystemCommand(
             "AI provider…",
             "Choose the LLM provider and model (Anthropic / OpenAI-compatible)",
