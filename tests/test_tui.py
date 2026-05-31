@@ -1474,3 +1474,108 @@ def test_session_view_state_captured_and_restored(host_binary, tmp_path, monkeyp
             assert app._filter == "a"
 
     asyncio.run(scenario())
+
+
+def test_data_view_lists_sections_and_findings(host_binary, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            app.action_data_view()
+            await pilot.pause()
+            await pilot.pause()
+            text = _pane_text(app, "#data")
+            assert "SECTIONS" in text
+            assert "IMPORTS" in text
+            assert "EXPORTS" in text
+            assert "SCAN FINDINGS" in text
+            assert any(s.name and s.name in text for s in app.image.sections)
+            first = app._data_view_cache
+            app._render_data_view()
+            assert app._data_view_cache is first
+
+    asyncio.run(scenario())
+
+
+def test_command_palette_covers_headless_capabilities(
+    host_binary, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            titles = [c.title for c in app.get_system_commands(app.screen)]
+            for want in (
+                "Disassemble",
+                "Cross-references",
+                "Analysis",
+                "Pseudo-C",
+                "Call graph",
+                "Strings",
+                "Go to address…",
+                "Data view",
+                "Compare with build…",
+                "Copy address",
+                "Export function report",
+            ):
+                assert want in titles, want
+            assert titles[-1] == "Quit"
+
+    asyncio.run(scenario())
+
+
+def test_graph_keyboard_navigation_recenters(host_binary, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            # find a function that has a callee so "into" can move
+            origin = None
+            for f in app._rows:
+                if app._graph_callees(f.va):
+                    origin = f.va
+                    break
+            if origin is None:
+                pytest.skip("no function with a callee in this host binary")
+            app._select_func_node(origin)
+            await pilot.pause()
+            app.action_graph()
+            await pilot.pause()
+            assert app._graph_va == origin
+            target = app._graph_callees(origin)[0]
+            app.action_graph_into()
+            await pilot.pause()
+            assert app._graph_va == target
+            app.action_graph_more_callees()
+            await pilot.pause()
+            assert app._graph_pages["callees"] >= 1
+
+    asyncio.run(scenario())
+
+
+def test_compare_view_reports_self_compare(host_binary, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            # a build compared against itself has no differences
+            report = app._compare_report(app.image)
+            assert "No function or import differences" in report.plain
+            # _run_compare loads a second build and shows it in the Compare tab
+            app._run_compare(host_binary)
+            await pilot.pause()
+            await pilot.pause()
+            assert "COMPARE" in _pane_text(app, "#compare")
+            # a bad path is reported, not raised
+            app._run_compare("/no/such/binary/here")
+            await pilot.pause()
+
+    asyncio.run(scenario())

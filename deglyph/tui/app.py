@@ -159,7 +159,7 @@ _TABS_BY_KIND: dict[str, tuple[str, ...]] = {
     _ITEM_STRING: ("tab-info",),
     _ITEM_SECTION: ("tab-info",),
     _ITEM_SLICE: ("tab-info",),
-    _ITEM_BINARY: ("tab-map", "tab-strings", "tab-info"),
+    _ITEM_BINARY: ("tab-map", "tab-strings", "tab-data", "tab-compare", "tab-info"),
 }
 
 # Default tab the right pane switches to when an item of this kind is selected
@@ -865,6 +865,12 @@ class DeglyphApp(App):
         Binding("c", "graph", "Graph"),
         Binding("i", "assistant", "Assistant"),
         Binding("s", "strings", "Strings"),
+        Binding("t", "data_view", "Data", show=False),
+        Binding("v", "compare", "Compare...", show=False),
+        Binding("l", "graph_into", "Graph: into callee", show=False),
+        Binding("h", "graph_up", "Graph: up to caller", show=False),
+        Binding("m", "graph_more_callees", "Graph: more callees", show=False),
+        Binding("u", "graph_more_callers", "Graph: more callers", show=False),
         # annotate
         Binding("n", "rename", "Rename…"),
         Binding("b", "bookmark", "Bookmark"),
@@ -956,6 +962,9 @@ class DeglyphApp(App):
         self._graph_pages = {"callers": 0, "callees": 0}
         # Image-wide string list, extracted lazily and cached per loaded binary.
         self._strings_cache: list | None = None
+        # Consolidated data view (sections / imports / exports / strings /
+        # findings), rendered once per binary and cached (the scan is slow).
+        self._data_view_cache = None
         # Jump history for the toolbar back/forward (browser-style; IDA-like).
         self._nav_history: list[int] = []
         self._nav_pos = -1
@@ -1006,6 +1015,12 @@ class DeglyphApp(App):
                     with TabPane("Strings", id="tab-strings"):
                         with VerticalScroll(classes="pane-scroll"):
                             yield Static(id="strings", classes="pane")
+                    with TabPane("Data", id="tab-data"):
+                        with VerticalScroll(classes="pane-scroll"):
+                            yield Static(id="data", classes="pane")
+                    with TabPane("Compare", id="tab-compare"):
+                        with VerticalScroll(classes="pane-scroll"):
+                            yield Static(id="compare", classes="pane")
                     with TabPane("Assistant", id="tab-ai"):
                         with Vertical(id="ai-box"):
                             with VerticalScroll(id="ai-scroll", classes="pane-scroll"):
@@ -1088,6 +1103,7 @@ class DeglyphApp(App):
             return
         self._set_header_title()
         self._strings_cache = None
+        self._data_view_cache = None
         self._anno = Annotations(path=self._path or "")
         # session picked from the welcome screen: adopt its work now
         if restore:
@@ -1826,6 +1842,8 @@ class DeglyphApp(App):
                 self._render_strings()
             elif active == "tab-map":
                 self._render_map()
+            elif active == "tab-data":
+                self._render_data_view()
             elif active == "tab-info":
                 self._render_binary_info()
 
@@ -2055,6 +2073,7 @@ class DeglyphApp(App):
         # The new slice has its own functions / strings / nav; reset the
         # per-slice view state so nothing from the prior slice leaks across.
         self._strings_cache = None
+        self._data_view_cache = None
         self._nav_history = []
         self._nav_pos = -1
         self._set_header_title()
@@ -2278,6 +2297,85 @@ class DeglyphApp(App):
         if img is None:
             return
         self.query_one("#map", Static).update(render.binary_map(img))
+
+    _DATA_VIEW_CAP = 200
+
+    def _render_data_view(self) -> None:
+        """Sections, imports, exports, strings, and scan findings in one pane.
+
+        Rendered once per binary and cached, since the scan is the slow step.
+        Each list is capped (`_DATA_VIEW_CAP`) with a truncation note so a large
+        binary stays responsive. Findings are the scanner's, run without the
+        network (no CVE), and stay labeled facts / heuristics, never proven.
+        """
+        widget = self.query_one("#data", Static)
+        if self._data_view_cache is not None:
+            widget.update(self._data_view_cache)
+            return
+        img = self.image
+        t = Text()
+
+        def _head(title: str, count: int) -> None:
+            t.append(f"{title}  ", style=GOLD)
+            t.append(f"({count})\n", style=DIM)
+
+        def _capped(rows: list, render_row) -> None:
+            for r in rows[: self._DATA_VIEW_CAP]:
+                render_row(r)
+            extra = len(rows) - self._DATA_VIEW_CAP
+            if extra > 0:
+                t.append(f"  {G['ellipsis']} {extra} more not shown\n", style=DIM)
+
+        _head("SECTIONS", len(img.sections))
+        for s in img.sections:
+            t.append(
+                f"  {s.name:<16}  {s.va:#012x}  {s.size:#10x}  {s.flags}\n",
+                style="#d9cbac",
+            )
+        imports = [f for f in img.funcs if f.kind == "import"]
+        exports = [f for f in img.funcs if f.kind == "export"]
+        t.append("\n")
+        _head("IMPORTS", len(imports))
+        _capped(
+            imports,
+            lambda f: t.append(f"  {self._disp(f):<32}  {f.va:#x}\n", style=BLUE),
+        )
+        t.append("\n")
+        _head("EXPORTS", len(exports))
+        _capped(
+            exports,
+            lambda f: t.append(f"  {self._disp(f):<32}  {f.va:#x}\n", style=GOLD),
+        )
+        strings = self._strings_cache or []
+        t.append("\n")
+        _head("STRINGS", len(strings))
+        _capped(
+            strings,
+            lambda s: t.append(f'  {s.va:#012x}  "{s.text}"\n', style=GREEN),
+        )
+        findings = self._data_view_findings()
+        t.append("\n")
+        _head("SCAN FINDINGS", len(findings))
+        t.append("(facts / heuristics; confirm before acting)\n", style=DIM)
+        if not findings:
+            t.append("  (none)\n", style=DIM)
+        _capped(
+            findings,
+            lambda f: t.append(
+                f"  [{f.level:<7}] {f.rule}  {f.message}\n", style="#d9cbac"
+            ),
+        )
+        self._data_view_cache = t
+        widget.update(t)
+
+    def _data_view_findings(self) -> list:
+        """Scanner findings for the data view, without the network (no CVE)."""
+        try:
+            from ..scan import scan_image
+
+            return scan_image(self.image, cve=False)
+        except Exception:
+            return []
 
     def _render_pseudo(self, func) -> None:
         img = self.image
@@ -2894,6 +2992,8 @@ class DeglyphApp(App):
         inp.value = self._filter
         if mode == "goto":
             self._do_goto(value)
+        elif mode == "compare":
+            self._run_compare(value)
         elif mode == "rename":
             self._do_rename(value)
         elif mode == "comment":
@@ -3040,6 +3140,69 @@ class DeglyphApp(App):
         self._select_node(self._binary_node)
         self.query_one("#tabs", TabbedContent).active = "tab-strings"
 
+    def action_data_view(self) -> None:
+        """Jump to the Binary item and show the consolidated data view."""
+        if self._binary_node is None:
+            return
+        self._select_node(self._binary_node)
+        self.query_one("#tabs", TabbedContent).active = "tab-data"
+
+    def action_compare(self) -> None:
+        """Prompt for a second binary to diff against the current build."""
+        self._prompt = "compare"
+        box = self.query_one("#search", Input)
+        box.placeholder = "compare with build (path), Enter to diff"
+        box.focus()
+
+    def _compare_report(self, other) -> Text:
+        """A two-build diff: functions and imports added / removed.
+
+        `diff_baseline(current, other)` reports what the current build has that
+        `other` does not (added) and what `other` had that the current build
+        dropped (removed), keyed by a relocation-immune identity so a moved but
+        identical function is not double counted. A self-compare is empty.
+        """
+        from ..scan import diff_baseline
+
+        t = Text()
+        t.append(f"COMPARE  {os.path.basename(self.image.path)}\n", style=GOLD)
+        t.append(f"  against  {os.path.basename(other.path)}\n\n", style=DIM)
+        findings = diff_baseline(self.image, other)
+        if not findings:
+            t.append("No function or import differences.\n", style=GREEN)
+            return t
+        for rule, title in (
+            ("diff/added-function", "FUNCTIONS ADDED"),
+            ("diff/removed-function", "FUNCTIONS REMOVED"),
+            ("diff/added-import", "IMPORTS ADDED"),
+        ):
+            group = [f for f in findings if f.rule == rule]
+            t.append(f"{title}  ", style=GOLD)
+            t.append(f"({len(group)})\n", style=DIM)
+            for f in group[:200]:
+                t.append(f"  {f.message}\n", style="#d9cbac")
+            if len(group) > 200:
+                t.append(f"  {G['ellipsis']} {len(group) - 200} more\n", style=DIM)
+            t.append("\n")
+        return t
+
+    def _run_compare(self, path: str) -> None:
+        """Load `path` as a second build and render the diff in the Compare tab."""
+        path = (path or "").strip()
+        if not path:
+            return
+        try:
+            other = load_image(path)
+        except Exception as e:
+            self.notify(
+                f"Could not open {os.path.basename(path)}: {e}", severity="error"
+            )
+            return
+        self.query_one("#compare", Static).update(self._compare_report(other))
+        if self._binary_node is not None:
+            self._select_node(self._binary_node)
+            self.query_one("#tabs", TabbedContent).active = "tab-compare"
+
     # Active tab id -> the Static widget whose content the copy action yanks.
     _COPY_PANE_BY_TAB = {
         "tab-disasm": "#disasm",
@@ -3049,6 +3212,8 @@ class DeglyphApp(App):
         "tab-graph": "#graph",
         "tab-map": "#map",
         "tab-strings": "#strings",
+        "tab-data": "#data",
+        "tab-compare": "#compare",
         "tab-info": "#info",
         "tab-ai": "#ai-log",
     }
@@ -3193,6 +3358,40 @@ class DeglyphApp(App):
             self._graph_pages[group] += delta
             self._render_graph()
 
+    def _on_graph_tab(self) -> bool:
+        """True when the call-graph tab is active and centered on a function."""
+        try:
+            active = self.query_one("#tabs", TabbedContent).active
+        except Exception:
+            return False
+        return active == "tab-graph" and self._graph_va is not None
+
+    def action_graph_into(self) -> None:
+        """Keyboard: recenter the graph on the centered function's first callee."""
+        if not self._on_graph_tab():
+            return
+        callees = self._graph_callees(self._graph_va)
+        if callees:
+            self._graph_recenter(callees[0])
+
+    def action_graph_up(self) -> None:
+        """Keyboard: recenter the graph on the centered function's first caller."""
+        if not self._on_graph_tab():
+            return
+        callers = self._graph_callers(self._graph_va)
+        if callers:
+            self._graph_recenter(callers[0])
+
+    def action_graph_more_callees(self) -> None:
+        """Keyboard: page the callees group forward (graph tab only)."""
+        if self._on_graph_tab():
+            self.action_graph_page("callees", 1)
+
+    def action_graph_more_callers(self) -> None:
+        """Keyboard: page the callers group forward (graph tab only)."""
+        if self._on_graph_tab():
+            self.action_graph_page("callers", 1)
+
     def _on_theme_changed(self, theme) -> None:
         """Persist the theme so the next run starts with the same one."""
         config.put("theme", getattr(theme, "name", str(theme)))
@@ -3225,6 +3424,43 @@ class DeglyphApp(App):
             "Export function report",
             "Write a plain-text report (disassembly, analysis, xrefs) to the CWD",
             self.action_export_report,
+        )
+        yield SystemCommand(
+            "Disassemble",
+            "Show the selected function's disassembly",
+            self.action_disasm,
+        )
+        yield SystemCommand(
+            "Cross-references",
+            "Show callers and callees of the selection",
+            self.action_xrefs,
+        )
+        yield SystemCommand(
+            "Analysis",
+            "Run the structure detectors on the selection",
+            self.action_analysis,
+        )
+        yield SystemCommand(
+            "Pseudo-C", "Show heuristic pseudo-C for the selection", self.action_pseudo
+        )
+        yield SystemCommand(
+            "Call graph", "Show the call graph around the selection", self.action_graph
+        )
+        yield SystemCommand(
+            "Strings", "Show the image-wide strings list", self.action_strings
+        )
+        yield SystemCommand(
+            "Go to address…", "Jump to a virtual address", self.action_goto
+        )
+        yield SystemCommand(
+            "Data view",
+            "Sections, imports, exports, strings, and scan findings",
+            self.action_data_view,
+        )
+        yield SystemCommand(
+            "Compare with build…",
+            "Diff functions and imports against a second binary",
+            self.action_compare,
         )
         yield SystemCommand(
             "AI provider…",
