@@ -897,6 +897,54 @@ def test_copy_action_yanks_active_pane(host_binary, tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_copy_address_reports_selected_va(host_binary, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            va = _first_code_va(app)
+            app._select_func_node(va)
+            await pilot.pause()
+            app.action_copy_address()
+            await pilot.pause()
+            assert f"{va:#x}" in _pane_text(app, "#status")
+
+    asyncio.run(scenario())
+
+
+def test_function_report_has_sections_and_export(host_binary, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _settle_discovery(app, pilot)
+            va = _first_code_va(app)
+            func = app.image.func_at(va)
+            report = app._function_report(func)
+            assert app._disp(func) in report
+            assert f"{va:#x}" in report
+            assert "## Disassembly" in report
+            assert "## Analysis" in report
+            assert "## Cross-references" in report
+
+            import os
+
+            monkeypatch.chdir(tmp_path)
+            app._select_func_node(va)
+            await pilot.pause()
+            app.action_export_report()
+            await pilot.pause()
+            written = [f for f in os.listdir(tmp_path) if f.endswith(".report.txt")]
+            assert written
+            body = open(tmp_path / written[0], encoding="utf-8").read()
+            assert "## Disassembly" in body
+
+    asyncio.run(scenario())
+
+
 def test_stop_button_cancels_in_flight_request(host_binary, tmp_path, monkeypatch):
     """Pressing Stop drops the in-flight question and ignores the late reply."""
     monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
