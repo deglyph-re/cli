@@ -157,6 +157,8 @@ def test_no_hardening_flag_suppresses_them():
     img = load_image(SAMPLE)
     rules = _rules(scan.scan_image(img, hardening=False, fingerprint=False))
     assert not any(r.startswith("harden/") for r in rules)
+
+
 # --- Section 6: hardening findings carry decoded evidence in their message ----
 def test_pe_findings_carry_dllcharacteristics_evidence(code_image):
     # dll=0 -> every PE protection missing; each message names the flag it lacks.
@@ -181,6 +183,8 @@ def test_pe_findings_carry_dllcharacteristics_evidence(code_image):
     assert "GUARD_CF" in by_rule["harden/no-cfg"].message
     # every hardening finding is a fact (a verifiable container flag)
     assert all(f.category == "fact" for f in findings)
+
+
 # --- Section 6: synthetic platform hardening matrix --------------------------
 # Real per-variant fixtures need cross-toolchains unavailable on every host;
 # these inline fake-LIEF objects exercise each hardening path deterministically.
@@ -201,7 +205,8 @@ def _pe_bin(dll, *, cookie=0, se_count=0, signed=False):
 
 
 def test_pe_matrix_hardened_vs_unhardened(code_image):
-    img = code_image(bytes.fromhex("c3"))  # x64 by default
+    # x64 by default
+    img = code_image(bytes.fromhex("c3"))
     # fully hardened: DYNAMIC_BASE|NX|GUARD_CF|HIGH_ENTROPY, cookie set, signed
     hard = scan._hardening_pe(img, _pe_bin(0x4160, cookie=1, signed=True))
     assert _rules(hard) == set()
@@ -256,7 +261,7 @@ def _elf_bin(*, pie, relro, bind_now, stack_x):
 
 
 def test_elf_matrix_full_relro_pie():
-    from deglyph.core.image import Arch, Image, Section
+    from deglyph.core.image import Arch, Image
 
     img = Image(path="x", fmt="ELF", arch=Arch.X64, base=0)
     img.funcs.append(Func(name="__stack_chk_fail", va=0x1, kind="import"))
@@ -278,8 +283,10 @@ def test_elf_matrix_partial_relro_and_no_pie():
     r = _rules(scan._hardening_elf(img, b))
     assert "harden/no-pie" in r
     assert "harden/partial-relro" in r
-    assert "harden/no-dep" in r  # executable stack
-    assert "harden/no-stack-canary" in r  # no canary symbol
+    # executable stack
+    assert "harden/no-dep" in r
+    # no canary symbol
+    assert "harden/no-stack-canary" in r
 
 
 def test_macho_matrix_pie_canary_signed(code_image):
@@ -288,7 +295,8 @@ def test_macho_matrix_pie_canary_signed(code_image):
     img.reindex()
 
     class _Hdr:
-        flags = 0x200000  # MH_PIE
+        # MH_PIE
+        flags = 0x200000
         flags_list = []
 
     class _Bin:

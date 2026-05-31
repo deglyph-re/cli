@@ -12,6 +12,7 @@ import pytest
 from deglyph import scan
 from deglyph.cli import main
 from deglyph.core.image import Func, Image, Section
+from deglyph.scan import Finding
 
 SAMPLE = os.path.join(os.path.dirname(__file__), "..", "samples", "demo.exe")
 
@@ -316,6 +317,8 @@ def test_cli_sbom_output_file(tmp_path, capsys):
     doc = json.loads(out_path.read_text(encoding="utf-8"))
     assert doc["bomFormat"] == "CycloneDX"
     assert capsys.readouterr().out == ""
+
+
 # --- Section 6: category, rule-config, hardening evidence, baseline identity ---
 def test_finding_category_from_rule():
     from deglyph.scan import _category
@@ -332,9 +335,9 @@ def test_finding_category_from_rule():
 
 def test_to_json_and_sarif_carry_category():
     f = Finding("harden/no-pie", "warning", "no PIE", "hardening")
-    doc = to_json([("a.bin", [f])])
+    doc = scan.to_json([("a.bin", [f])])
     assert doc["files"][0]["findings"][0]["category"] == "fact"
-    sarif = to_sarif([("a.bin", [f])])
+    sarif = scan.to_sarif([("a.bin", [f])])
     res = sarif["runs"][0]["results"][0]
     assert res["properties"]["category"] == "fact"
 
@@ -344,7 +347,7 @@ def test_to_text_groups_by_category():
         Finding("harden/no-pie", "warning", "no PIE", "hardening"),
         Finding("import/network", "note", "net", "import"),
     ]
-    text = to_text([("a.bin", findings)])
+    text = scan.to_text([("a.bin", findings)])
     assert "Facts" in text and "Heuristics" in text
     # the fact group appears before the heuristic group
     assert text.index("Facts") < text.index("Heuristics")

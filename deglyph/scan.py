@@ -76,10 +76,10 @@ _LEVEL_RANK = {"note": 0, "warning": 1, "error": 2}
 
 # Finding category, by rule-id prefix. Three buckets the report groups by:
 #   fact       a verifiable property of the container (a hardening flag that is
-#              present or absent, a fingerprinted library) -- not a judgment.
+#              present or absent, a fingerprinted library); not a judgment.
 #   heuristic  a pattern match that suggests but does not prove (a credential-
-#              shaped string, an imported capability) -- confirm before acting.
-#   policy     a gate / drift signal (diff vs a baseline, a known CVE) -- whether
+#              shaped string, an imported capability); confirm before acting.
+#   policy     a gate / drift signal (diff vs a baseline, a known CVE); whether
 #              it matters is the consumer's policy call.
 _CATEGORY: dict[str, str] = {
     "harden/": "fact",
@@ -495,9 +495,7 @@ def _hardening_pe(image: Image, b) -> list[Finding]:
         )
 
     if not _pe_is_signed(b):
-        out.append(
-            _h("harden/unsigned", evidence="no Authenticode certificate table")
-        )
+        out.append(_h("harden/unsigned", evidence="no Authenticode certificate table"))
 
     return out
 
@@ -519,9 +517,7 @@ def _hardening_elf(image: Image, b) -> list[Finding]:
         )
 
     if not _has_stack_canary(image):
-        out.append(
-            _h("harden/no-stack-canary", evidence="no __stack_chk_fail symbol")
-        )
+        out.append(_h("harden/no-stack-canary", evidence="no __stack_chk_fail symbol"))
     if not _elf_has_fortify(image):
         out.append(_h("harden/no-fortify", evidence="no *_chk fortified-libc symbols"))
 
@@ -540,9 +536,7 @@ def _hardening_macho(image: Image, b) -> list[Finding]:
     if not _macho_is_pie(b):
         out.append(_h("harden/no-pie", evidence="MH_PIE not set in mach_header.flags"))
     if not _has_stack_canary(image):
-        out.append(
-            _h("harden/no-stack-canary", evidence="no ___stack_chk_fail symbol")
-        )
+        out.append(_h("harden/no-stack-canary", evidence="no ___stack_chk_fail symbol"))
     if not _macho_is_signed(b):
         out.append(_h("harden/unsigned", evidence="no LC_CODE_SIGNATURE load command"))
 
@@ -925,6 +919,7 @@ def scan_image(
         findings += scan_cve(lib_hits)
     if baseline is not None:
         findings += diff_baseline(image, baseline)
+    findings = _apply_rule_config(findings, rule_config or {})
     if ignore:
         findings = [f for f in findings if not _is_ignored(f.rule, ignore)]
     if ignore_fp:
@@ -945,6 +940,7 @@ def scan_file(
     cve: bool = False,
     ignore: set[str] | None = None,
     ignore_fp: set[str] | None = None,
+    rule_config: dict[str, str] | None = None,
 ) -> list[Finding]:
     img = load_image(path, fmt=fmt, arch=arch)
     base = load_image(baseline, fmt=fmt, arch=arch) if baseline else None
@@ -957,6 +953,7 @@ def scan_file(
         cve=cve,
         ignore=ignore,
         ignore_fp=ignore_fp,
+        rule_config=rule_config,
     )
 
 
@@ -979,9 +976,10 @@ def iter_targets(path: str) -> list[str]:
 # --- output -----------------------------------------------------------------
 
 
-# Report order and headings for the three finding categories.
-_CATEGORY_ORDER = ("fact", "heuristic", "policy")
-_CATEGORY_LABEL = {
+# Report order and headings for the three finding categories. Public so the
+# report renderers (report.py) group findings the same way.
+CATEGORY_ORDER = ("fact", "heuristic", "policy")
+CATEGORY_LABEL = {
     "fact": "Facts (verifiable container properties)",
     "heuristic": "Heuristics (patterns to confirm, not proof)",
     "policy": "Policy (drift / known-CVE gates)",
@@ -994,15 +992,13 @@ def to_text(results: list[tuple[str, list[Finding]]]) -> str:
     total = 0
     for path, findings in results:
         lines.append(f"{path}: {len(findings)} finding(s)")
-        for cat in _CATEGORY_ORDER:
+        for cat in CATEGORY_ORDER:
             group = [f for f in findings if f.category == cat]
             if not group:
                 continue
-            lines.append(f"  {_CATEGORY_LABEL[cat]}")
+            lines.append(f"  {CATEGORY_LABEL[cat]}:")
             for f in group:
-                lines.append(
-                    f"    [{f.level:<7}] {f.where:<14} {f.rule}  {f.message}"
-                )
+                lines.append(f"    [{f.level:<7}] {f.where:<14} {f.rule}  {f.message}")
         total += len(findings)
     lines.append(f"\n{total} finding(s) across {len(results)} file(s)")
     return "\n".join(lines)
