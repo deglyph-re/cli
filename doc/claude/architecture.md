@@ -35,6 +35,9 @@ The left pane is a `Tree` (`#functions`, `show_root=False`). `_apply_filter` run
 ### TUI render ownership
 The detail panes have one writer: `on_tree_node_highlighted`. A group folder carries `node.data is None`, so highlighting one renders nothing. It also guards on `item == _last_rendered_item` so a spurious same-item highlight can't clobber a `goto`/`follow` view. `goto` edits the search box programmatically, so it sets `_input_locked` to drop the queued `Input.Changed` events that would re-filter the tree.
 
+### TUI workbench (Section 9)
+The binary overview carries a Data tab (`_render_data_view`: sections, imports, exports, strings, and scanner findings run with `cve=False`, capped and cached in `_data_view_cache`) and a Compare tab (`_compare_report` over `scan.diff_baseline` against a second build, prompted via `_handle_prompt` mode `compare`). The command palette (`get_system_commands`) covers every headless capability, with Quit last. The call graph is keyboard-navigable on its tab (`l`/`h` recenter on the first callee/caller, `m`/`u` page the groups), guarded by `_on_graph_tab`. Session view state (filter, active tab, selected function) persists through `store.Annotations.view` via `_capture_view_state`/`_restore_view_state`. `action_export_ai` writes the last assistant investigation (redacted) to a JSON file in the CWD, captured from the chat worker in `_ask_ai`.
+
 Address navigation funnels through `_goto_address(addr)` (the goto handler and the clickable-disassembly path both call it). `render.disasm_text` attaches a `{"@click": "app.goto_addr(<va>)"}` meta to any branch/call operand whose target is inside `image.text`; Textual routes it `action_goto_addr` -> `_goto_address`. Keep new jump entry points on this method. The single cursor primitive after a rebuild is `_select_func_node(va)` (expands ancestors, selects, scrolls via `_va_nodes`); never `move_cursor(row=i)`.
 
 ### Pseudo-C and the call tree share the detectors' limits
