@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 DEFAULT_MODEL = "claude-opus-4-7"
@@ -188,7 +189,12 @@ _SYSTEM = (
     "loads a command opcode and forwards to a known sender, or an entrypoint with "
     "the WinMain/main signature), call rename_function to give it that name. Only "
     "rename when you can point to specific evidence in the disassembly. Do not "
-    "invent names from intuition."
+    "invent names from intuition. "
+    "Cite the tool and address that supports each claim; when no tool output "
+    "backs a statement, say it is uncertain and name what to check next. Before "
+    "renaming a function you must first inspect it (disassemble, analyze, "
+    "pseudo_c, xrefs, read_data, or string_at); a rename without prior "
+    "inspection of that function is rejected."
 )
 
 # Read-only tools the assistant may call to investigate the binary.
@@ -337,6 +343,37 @@ _TOOL_SCHEMAS = [
 ]
 
 
+@dataclass(slots=True)
+class ToolCall:
+    """One read-only tool invocation and its result, for the audit transcript."""
+
+    name: str
+    input: dict
+    result: str
+
+
+# Secret-shaped tokens (provider key prefixes) and long opaque runs, masked in
+# an exported investigation so a shared bundle never leaks a credential.
+_SECRET_PREFIX = re.compile(
+    r"\b(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{8,}"
+    r"|AKIA[A-Z0-9]{12,}|xox[baprs]-[A-Za-z0-9-]{8,})\b"
+)
+_LONG_TOKEN = re.compile(r"\b[A-Za-z0-9+/=_-]{24,}\b")
+
+
+def _redact(text: str, *, paths: list[str] | None = None) -> str:
+    """Mask absolute paths and secret-looking tokens for safe sharing."""
+    if not text:
+        return text
+    out = text
+    for p in paths or []:
+        if p:
+            out = out.replace(p, "<path>")
+    out = _SECRET_PREFIX.sub("<redacted:key>", out)
+    out = _LONG_TOKEN.sub(lambda m: f"<redacted:{len(m.group(0))}>", out)
+    return out
+
+
 class AssistantError(RuntimeError):
     """A configuration, network, or API failure surfaced to the UI."""
 
@@ -427,6 +464,13 @@ class Assistant:
         # persists them through Annotations; the dict also acts as an in-flight
         # override so later tool calls in the same turn see the new names.
         self._renames: dict[int, str] = {}
+        # Audit transcript of every tool call, and the slice index where the
+        # current turn's calls begin, so `last_transcript` can scope to one ask.
+        self._transcript: list[ToolCall] = []
+        self._turn_start_tc = 0
+        # VAs the agent inspected this turn; a rename is gated on prior inspection
+        # of that function, so a name is always backed by tool evidence.
+        self._inspected: set[int] = set()
 
     @property
     def model(self) -> str:
@@ -578,16 +622,23 @@ class Assistant:
         if reason:
             raise AssistantError(reason)
         start = len(self._messages)
+        # Per-turn audit state: the transcript slice and the inspected-VA set
+        # both scope to this ask, so `last_transcript` and the rename gate see
+        # only what this turn established.
+        self._turn_start_tc = len(self._transcript)
+        self._inspected = set()
         self._messages.append({"role": "user", "content": question})
         try:
             resp = self._run_loop(on_event)
         except AssistantError:
             # roll back the unanswered exchange
             del self._messages[start:]
+            del self._transcript[self._turn_start_tc :]
             raise
         # collapse SDK/network errors into one UI message
         except Exception as e:
             del self._messages[start:]
+            del self._transcript[self._turn_start_tc :]
             raise AssistantError(str(e)) from e
         text = "".join(
             getattr(b, "text", "")
@@ -638,11 +689,13 @@ class Assistant:
             for tu in tool_uses:
                 if on_event is not None:
                     on_event(tu.name, dict(tu.input))
+                content = self._run_tool(tu.name, dict(tu.input))
+                self._transcript.append(ToolCall(tu.name, dict(tu.input), content))
                 results.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": tu.id,
-                        "content": self._run_tool(tu.name, dict(tu.input)),
+                        "content": content,
                     }
                 )
             self._messages.append({"role": "user", "content": results})
@@ -687,6 +740,59 @@ class Assistant:
         )
         self._messages.append({"role": "assistant", "content": resp.content})
         return resp
+
+    # -- audit -------------------------------------------------------------
+    def transcript(self) -> list[ToolCall]:
+        """Every tool call recorded across the conversation."""
+        return list(self._transcript)
+
+    def last_transcript(self) -> list[ToolCall]:
+        """The tool calls made during the most recent `ask`."""
+        return list(self._transcript[self._turn_start_tc :])
+
+    def export_investigation(self) -> dict:
+        """A redacted, shareable record of the most recent investigation.
+
+        Bundles the question, the answer, and the tool-call transcript with the
+        host path and secret-looking tokens masked, so an investigation can be
+        shared without leaking credentials or local paths.
+        """
+        paths = []
+        path = self._image.path if self._image is not None else ""
+        if path:
+            paths.append(path)
+        question = ""
+        for m in reversed(self._messages):
+            if m["role"] == "user" and isinstance(m["content"], str):
+                question = m["content"]
+                break
+        answer = ""
+        for m in reversed(self._messages):
+            if m["role"] != "assistant":
+                continue
+            blocks = m["content"]
+            parts = [
+                _block_to_dict(b).get("text", "")
+                for b in (blocks if isinstance(blocks, list) else [])
+                if _block_to_dict(b).get("type") == "text"
+            ]
+            if parts:
+                answer = "\n".join(parts)
+                break
+        return {
+            "context": self._context_label,
+            "question": _redact(question, paths=paths),
+            "answer": _redact(answer, paths=paths),
+            "transcript": [
+                {
+                    "tool": c.name,
+                    "input": c.input,
+                    "result": _redact(c.result, paths=paths),
+                }
+                for c in self.last_transcript()
+            ],
+            "redacted": True,
+        }
 
     # -- tools -------------------------------------------------------------
     def consume_renames(self) -> dict[int, str]:
@@ -748,6 +854,12 @@ class Assistant:
         func = self._image.func_at(va)
         if func is None:
             return f"error: no function at {va:#x}"
+        if va not in self._inspected:
+            return (
+                f"error: inspect {self._display(func)} ({va:#x}) first "
+                "(disassemble / analyze / pseudo_c / xrefs / read_data / string_at) "
+                "so the new name is backed by evidence"
+            )
         prior = self._display(func)
         self._renames[va] = new_name
         return f"renamed {prior} ({va:#x}) to {new_name}"
@@ -760,6 +872,7 @@ class Assistant:
         va = self._resolve(str(inp.get("va", "")))
         if va is None:
             return f"error: could not resolve {inp.get('va')!r}"
+        self._inspected.add(va)
         try:
             size = int(inp.get("size", 64))
         except (TypeError, ValueError):
@@ -783,6 +896,7 @@ class Assistant:
         va = self._resolve(str(inp.get("va", "")))
         if va is None:
             return f"error: could not resolve {inp.get('va')!r}"
+        self._inspected.add(va)
         raw = self._image.read_va(va, 512)
         if not raw:
             return "(no mapped data here)"
@@ -883,6 +997,7 @@ class Assistant:
                 va = self._resolve(inp.get("target", ""))
                 if va is None:
                     return f"error: could not resolve {inp.get('target')!r}"
+                self._inspected.add(va)
                 if name == "disassemble":
                     insns = Disassembler(img).func(va)[:120]
                     return "\n".join(f"{i.addr:#012x}  {i.text}" for i in insns)

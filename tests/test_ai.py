@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from deglyph.ai import DEFAULT_MODEL, Assistant, AssistantError
@@ -513,3 +515,69 @@ def test_openai_translation_roundtrip():
     assert resp.stop_reason == "tool_use"
     kinds = [(b.type, getattr(b, "name", None)) for b in resp.content]
     assert ("text", None) in kinds and ("tool_use", "search") in kinds
+
+
+# --- Section 8: evidence transcript, rename gate, redacted export -----------
+
+
+def test_transcript_records_tool_calls(code_image):
+    img = code_image(bytes.fromhex("c3"))
+    a = Assistant(client=_AgenticClient())
+    a.bind_image(img)
+    a.set_context("f", "0x1000 ret")
+    a.ask("explain")
+    tc = a.last_transcript()
+    assert len(tc) == 1
+    assert tc[0].name == "find_function"
+    assert tc[0].result
+
+
+def test_rename_requires_prior_inspection(code_image):
+    a = Assistant(client=FakeClient())
+    a.bind_image(code_image(bytes.fromhex("c3")))
+    out = a._run_tool("rename_function", {"target": "0x1000", "new_name": "foo"})
+    assert "inspect" in out
+    # a blind rename is not recorded
+    assert a.consume_renames() == {}
+
+
+def test_rename_allowed_after_inspection(code_image):
+    a = Assistant(client=FakeClient())
+    a.bind_image(code_image(bytes.fromhex("90 90 c3")))
+    a._run_tool("disassemble", {"target": "0x1000"})
+    out = a._run_tool("rename_function", {"target": "0x1000", "new_name": "foo"})
+    assert "renamed" in out
+    assert a.consume_renames() == {0x1000: "foo"}
+
+
+def test_export_redacts_secrets_and_paths(code_image):
+    from deglyph.ai import ToolCall
+
+    img = code_image(bytes.fromhex("c3"))
+    a = Assistant(client=FakeClient())
+    a.bind_image(img)
+    a.set_context("f", "code")
+    a.ask("what is this?")
+    secret = "sk-ABCDEFGHIJKLMNOP1234567890"
+    a._transcript.append(
+        ToolCall("read_data", {"va": "0x1000"}, f"token {secret} at {img.path}")
+    )
+    a._turn_start_tc = 0
+    exp = a.export_investigation()
+    blob = json.dumps(exp)
+    assert secret not in blob
+    assert img.path not in blob
+    assert "<redacted" in blob
+    assert exp["redacted"] is True
+
+
+def test_export_investigation_shape(code_image):
+    a = Assistant(client=FakeClient())
+    a.bind_image(code_image(bytes.fromhex("c3")))
+    a.set_context("encode_frame", "code")
+    a.ask("hello")
+    exp = a.export_investigation()
+    assert set(exp) == {"context", "question", "answer", "transcript", "redacted"}
+    assert exp["context"] == "encode_frame"
+    assert exp["question"] == "hello"
+    assert exp["answer"]
