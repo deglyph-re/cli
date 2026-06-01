@@ -72,7 +72,7 @@ deglyph/
   scan.py    headless CI scanner: hardening / secrets / libs / risky imports / baseline diff; every Finding has a category (fact/heuristic/policy) + a rule-config (.deglyphrules) overlay
   sbom.py    CycloneDX 1.5 + SPDX 2.3 emitters; root = scanned binary, components = fingerprinted libs
   cve.py     osv.dev client + on-disk cache (~/.deglyph/cve-cache/) keyed by purl, 24h TTL
-  cache.py   on-disk analysis cache (~/.deglyph/analysis-cache/) keyed by file sha256 + CACHE_VERSION; cache_get/cache_put/clear_cache, opt-out $DEGLYPH_NO_CACHE
+  cache.py   on-disk analysis cache (~/.deglyph/analysis-cache/) keyed by file sha256 + CACHE_VERSION; cache_get/cache_put/clear_cache, opt-out $DEGLYPH_NO_CACHE. Caches the whole-image passes (strings/xref index/discovery); each pass also takes an optional max_seconds budget returning an uncached partial result
   report.py  to_markdown (PR-comment shaped) + to_html (single-file dashboard) over scan results
   store.py   persistent per-binary annotations (renames/notes/bookmarks/AI chats) -> sidecar JSON
   account.py token store + endpoint URL for the optional hosted (Pro) tier
@@ -89,6 +89,7 @@ samples/     demo.c + demo.exe: domain-neutral toy binary committed as a CI fixt
              fixture_src.c + build_fixtures.sh: stripped PE/ELF/Mach-O/fat function-recovery fixtures, built (not committed), skipif-absent
 doc/help/    the manual: help.json index + categorized Markdown entries (rendered by the website's docs.html)
 doc/claude/  developer reference extracted from this file: architecture.md, common-mistakes.md, extending.md
+scripts/     verify.py (tone/style gate) + benchmark.py (cold-pass timings over a binary; not a pytest test)
 action.yml   composite GitHub Action wrapping `deglyph scan`; examples/deglyph-scan.yml is a consumer workflow
 deglyph.sh   self-bootstrapping launcher; deglyph.bat is the Windows equivalent
 ```
