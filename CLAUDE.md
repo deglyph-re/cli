@@ -72,6 +72,7 @@ deglyph/
   scan.py    headless CI scanner: hardening / secrets / libs / risky imports / baseline diff; every Finding has a category (fact/heuristic/policy) + a rule-config (.deglyphrules) overlay
   sbom.py    CycloneDX 1.5 + SPDX 2.3 emitters; root = scanned binary, components = fingerprinted libs
   cve.py     osv.dev client + on-disk cache (~/.deglyph/cve-cache/) keyed by purl, 24h TTL
+  cache.py   on-disk analysis cache (~/.deglyph/analysis-cache/) keyed by file sha256 + CACHE_VERSION; cache_get/cache_put/clear_cache, opt-out $DEGLYPH_NO_CACHE
   report.py  to_markdown (PR-comment shaped) + to_html (single-file dashboard) over scan results
   store.py   persistent per-binary annotations (renames/notes/bookmarks/AI chats) -> sidecar JSON
   account.py token store + endpoint URL for the optional hosted (Pro) tier
