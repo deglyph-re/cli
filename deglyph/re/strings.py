@@ -17,6 +17,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from ..cache import cache_get, cache_put, file_sha256
 from ..core.image import Arch, Image
 from .cfg import function_insns
 
@@ -131,7 +132,17 @@ def extract_strings(
     from the default view. Pass `raw=True` for the unfiltered `strings(1)` dump
     (every run, VA 0 included, every category). `section` filters to one section;
     `min_len` is the minimum run length.
+
+    The default-argument call (the whole-image pass the TUI, data view, and
+    export all use) is cached on disk by the binary's content hash, so reopening
+    an unchanged build skips the scan; non-default arguments always recompute.
     """
+    default_args = min_len == 4 and limit == 4000 and section is None and not raw
+    digest = file_sha256(image.path) if default_args else None
+    if digest is not None:
+        cached = cache_get(digest, "strings")
+        if cached is not None:
+            return [StringLit(*row) for row in cached]
     with open(image.path, "rb") as fh:
         data = fh.read()
     symbols = {f.name for f in image.funcs if f.name}
@@ -155,6 +166,12 @@ def extract_strings(
         out.append(lit)
         if len(out) >= limit:
             break
+    if digest is not None:
+        cache_put(
+            digest,
+            "strings",
+            [[s.va, s.off, s.section, s.encoding, s.text, s.category] for s in out],
+        )
     return out
 
 

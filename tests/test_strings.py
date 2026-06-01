@@ -141,3 +141,25 @@ def test_extract_strings_finds_planted_secret():
     img = load_image(_DEMO)
     out = extract_strings(img)
     assert any("S3cr3t" in s.text for s in out)
+
+
+def test_extract_strings_is_cached_by_file_hash(tmp_path, monkeypatch):
+    if not os.path.isfile(_DEMO):
+        pytest.skip("demo.exe not built")
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    from deglyph import cache
+    from deglyph.core.image import load_image
+
+    img = load_image(_DEMO)
+    digest = cache.file_sha256(_DEMO)
+    assert cache.cache_get(digest, "strings") is None
+    first = extract_strings(img)
+    # the default-args pass populates the on-disk cache
+    assert cache.cache_get(digest, "strings") is not None
+    # the second call returns the same literals, served from cache
+    second = extract_strings(img)
+    assert [(s.va, s.text, s.encoding) for s in first] == [
+        (s.va, s.text, s.encoding) for s in second
+    ]
+    # a non-default call (raw) bypasses the cached default result
+    assert len(extract_strings(img, raw=True)) >= len(first)
