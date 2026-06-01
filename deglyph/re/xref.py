@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..cache import cache_get, cache_put, file_sha256
 from ..core.disasm import Disassembler
 from ..core.image import Image
 
@@ -49,14 +50,37 @@ def _build_index(image: Image) -> XrefIndex:
     return XrefIndex(to, data)
 
 
+def _serialize(idx: XrefIndex) -> dict:
+    return {
+        "to": {hex(k): [hex(a) for a in v] for k, v in idx.to.items()},
+        "data": {hex(k): [hex(a) for a in v] for k, v in idx.data.items()},
+    }
+
+
+def _deserialize(doc: dict) -> XrefIndex:
+    def _m(raw: dict | None) -> dict[int, list[int]]:
+        return {int(k, 16): [int(a, 16) for a in v] for k, v in (raw or {}).items()}
+
+    return XrefIndex(_m(doc.get("to")), _m(doc.get("data")))
+
+
 def _index(image: Image) -> XrefIndex:
     cached = getattr(image, "_xref_index", None)
-    if cached is None:
+    if cached is not None:
+        return cached
+    # On-disk cache keyed by file hash: the index scans every byte of .text,
+    # so reopening an unchanged build reuses the prior run's result.
+    digest = file_sha256(image.path)
+    payload = cache_get(digest, "xrefs")
+    if payload is not None:
+        cached = _deserialize(payload)
+    else:
         cached = _build_index(image)
-        try:
-            object.__setattr__(image, "_xref_index", cached)
-        except Exception:
-            image._xref_index = cached  # type: ignore[attr-defined]
+        cache_put(digest, "xrefs", _serialize(cached))
+    try:
+        object.__setattr__(image, "_xref_index", cached)
+    except Exception:
+        image._xref_index = cached  # type: ignore[attr-defined]
     return cached
 
 

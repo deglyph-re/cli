@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from deglyph.re import call_tree
+from deglyph import cache
+from deglyph.re import call_tree, callers_of, data_xrefs_to
 
 
 def test_callee_tree_follows_direct_calls(code_image):
@@ -58,3 +59,23 @@ def test_budget_bounds_total_nodes(code_image):
 
     # root + at most one expanded child
     assert count(root) <= 2
+
+
+def test_xref_index_is_cached_by_file_hash(code_image, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    # 0x1000: call 0x100a ; pad ; ret  (a single code edge to discover).
+    img = code_image(bytes.fromhex("e8 05 00 00 00") + b"\x90" * 5 + b"\xc3")
+    digest = cache.file_sha256(img.path)
+    assert cache.cache_get(digest, "xrefs") is None
+    first = callers_of(img, 0x100A)
+    assert first == [0x1000]
+    # the whole-image scan is now persisted under the file's content hash
+    assert cache.cache_get(digest, "xrefs") is not None
+    # a fresh image with identical bytes (same hash, no in-memory memo) is
+    # served from disk: _build_index must not run again.
+    img2 = code_image(bytes.fromhex("e8 05 00 00 00") + b"\x90" * 5 + b"\xc3")
+    monkeypatch.setattr(
+        "deglyph.re.xref._build_index",
+        lambda image: (_ for _ in ()).throw(AssertionError("rebuilt despite cache")),
+    )
+    assert callers_of(img2, 0x100A) == first
