@@ -1,0 +1,6 @@
+{
+  "funcdb_version": 1,
+  "functions": [],
+  "generated": "",
+  "note": "Function-signature corpus built by scripts/build_funcdb.py. An empty list means no catalogued functions, not a self-contained binary."
+}

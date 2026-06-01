@@ -24,6 +24,9 @@ log = logging.getLogger(__name__)
 # renamed field). Additive fields do not require a bump.
 PROJECT_VERSION = 1
 
+# Bump on a breaking change to the content-keyed knowledge document shape.
+KNOWLEDGE_VERSION = 1
+
 # Skip a sidecar larger than this rather than risk an OOM parsing a corrupt or
 # poisoned file. Chats can grow, but 64 MiB is far beyond any real session.
 _MAX_SIDECAR_BYTES = 64 * 1024 * 1024
@@ -131,6 +134,76 @@ class Annotations:
                 json.dump(self.to_dict(), fh, indent=2, default=str)
         except (OSError, TypeError, ValueError) as e:
             log.warning("could not save annotations to %s: %s", p, e)
+
+
+def to_knowledge(image, anno: Annotations) -> dict:
+    """Content-keyed export of renames and notes, for cross-build knowledge sharing.
+
+    Unlike `to_portable` (keyed by virtual address), this keys each rename and
+    note by the function's content identity (`re/funcsig` exact hash), so it
+    reattaches to the same function in another build or on another machine, where
+    the address has moved. A VA whose function does not decode is skipped. Chats
+    and bookmarks are omitted: a shared knowledge base is about naming functions.
+    """
+    from .re.funcsig import func_sig
+
+    sigs: dict[int, str] = {}
+
+    def _exact(va: int) -> str:
+        if va not in sigs:
+            s = func_sig(image, va)
+            sigs[va] = s.exact if s else ""
+        return sigs[va]
+
+    names: dict[str, str] = {}
+    for va, name in anno.names.items():
+        ex = _exact(va)
+        if ex:
+            names[ex] = name
+    comments: dict[str, str] = {}
+    for va, note in anno.comments.items():
+        ex = _exact(va)
+        if ex:
+            comments[ex] = note
+    return {
+        "deglyph_knowledge_version": KNOWLEDGE_VERSION,
+        "names": names,
+        "comments": comments,
+    }
+
+
+def apply_knowledge(image, doc: dict) -> Annotations:
+    """Build VA-keyed annotations for `image` from a content-keyed knowledge doc.
+
+    Every non-import function is signed and matched against the doc by exact
+    content hash (high precision: a fuzzy near-match is not auto-applied), so a
+    name recorded for `inflate` in one build lands on the same `inflate` here even
+    though its address differs. Malformed input yields empty annotations.
+    """
+    from .re.funcsig import func_sig
+
+    a = Annotations(path=getattr(image, "path", ""))
+    if not isinstance(doc, dict):
+        return a
+    names_by_hash = doc.get("names")
+    comments_by_hash = doc.get("comments")
+    names_by_hash = names_by_hash if isinstance(names_by_hash, dict) else {}
+    comments_by_hash = comments_by_hash if isinstance(comments_by_hash, dict) else {}
+    if not names_by_hash and not comments_by_hash:
+        return a
+    for f in image.funcs:
+        if f.kind == "import":
+            continue
+        s = func_sig(image, f.va)
+        if s is None:
+            continue
+        name = names_by_hash.get(s.exact)
+        if isinstance(name, str):
+            a.names[f.va] = name
+        note = comments_by_hash.get(s.exact)
+        if isinstance(note, str):
+            a.comments[f.va] = note
+    return a
 
 
 def _safe_mtime(path: str) -> float:

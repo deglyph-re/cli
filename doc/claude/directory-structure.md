@@ -12,14 +12,19 @@ deglyph/
              discover.py sub_<va> discovery from unwind tables + .text call/tail-jmp targets (scan_targets/add_discovered)
              unwind.py   authoritative function starts from unwind metadata (Mach-O function-starts / PE .pdata / ELF eh_frame)
              cfg.py      bounded recursive-descent CFG per function (basic blocks + undecoded gaps); backs the linear view
+             funcsig.py  content-addressed function identity: normalized-instruction exact hash + n-gram set + Jaccard similarity (the engine)
+             funcdb.py   function-level fingerprinting: FuncSignature corpus + identify_functions (sub_ -> "inflate from zlib"); load_func_db merges the bundled data/funcdb.json
+             bindiff.py  semantic function diff across two builds (unchanged / modified-with-similarity / added / removed) via funcsig
              fingerprint.py SIGNATURES table + scan_fingerprint -> LibHit list (zlib/openssl/sqlite/...)
   ai.py      agentic Claude assistant (Anthropic SDK, prompt-cached, opt-in); read-only tools over Image
-  scan.py    headless CI scanner: hardening / secrets / libs / risky imports / baseline diff; every Finding has a category (fact/heuristic/policy) + a rule-config (.deglyphrules) overlay
+  attest.py  signed, machine-checkable scan provenance: canonical digest + optional ed25519 signature (lazy `cryptography`, the `sign` extra)
+  data/      funcdb.json  bundled function-signature corpus (grown by scripts/build_funcdb.py in CI; empty seed in the repo)
+  scan.py    headless CI scanner: hardening / secrets / libs / risky imports / baseline diff / function id (--identify); every Finding has a category (fact/heuristic/policy) + a rule-config (.deglyphrules) overlay
   sbom.py    CycloneDX 1.5 + SPDX 2.3 emitters; root = scanned binary, components = fingerprinted libs
   cve.py     osv.dev client + on-disk cache (~/.deglyph/cve-cache/) keyed by purl, 24h TTL
   cache.py   on-disk analysis cache (~/.deglyph/analysis-cache/) keyed by file sha256 + CACHE_VERSION; cache_get/cache_put/clear_cache, opt-out $DEGLYPH_NO_CACHE. Caches the whole-image passes (strings/xref index/discovery); each pass also takes an optional max_seconds budget returning an uncached partial result
   report.py  to_markdown (PR-comment shaped) + to_html (single-file dashboard) over scan results
-  store.py   persistent per-binary annotations (renames/notes/bookmarks/AI chats) -> sidecar JSON
+  store.py   persistent per-binary annotations (renames/notes/bookmarks/AI chats) -> sidecar JSON; to_knowledge/apply_knowledge share renames keyed by function content hash
   account.py token store + endpoint URL for the optional hosted (Pro) tier
   config.py  tiny persistent app config (e.g. the chosen theme) -> ~/.deglyph/config.json
   tui/       app.py      Textual application; grouped function tree + tabbed detail view
@@ -27,7 +32,7 @@ deglyph/
              glyphs.py   three-tier glyph table: Nerd Font -> Unicode -> ASCII ($DEGLYPH_NERD/$DEGLYPH_ASCII)
              logo.py     baked ASCII/Unicode wordmark + tagline (welcome screen, About)
              style.tcss  theme (theme variables, not hardcoded hex)
-  cli.py     argparse entry point; TUI launch, headless --list/--analyze, `scan`, `sbom`, `login`/`logout`
+  cli.py     argparse entry point; TUI launch, headless --list/--analyze, `scan`, `sbom`, `export`, `diff`, `knowledge`, `attest`, `verify-attest`, `login`/`logout`
   __main__.py            enables `python -m deglyph`
 tests/       test_deglyph.py + per-feature tests (detectors, robustness, cli, render, call_tree, pseudo, ai, tui, store, search, discover, scan, account); test_properties.py (address-model invariants, no generative dep) + test_golden.py vs tests/golden/*.json snapshots (scan JSON / SARIF / export skeleton over demo.exe; regen with DEGLYPH_REGEN_GOLDEN=1)
 samples/     demo.c + demo.exe: domain-neutral toy binary committed as a CI fixture (planted secret, crc16, opcode)
@@ -35,6 +40,8 @@ samples/     demo.c + demo.exe: domain-neutral toy binary committed as a CI fixt
 doc/help/    the manual: help.json index + categorized Markdown entries (rendered by the website's docs.html)
 doc/claude/  developer reference extracted from this file: architecture.md, common-mistakes.md, extending.md, directory-structure.md
 scripts/     verify.py (tone/style gate) + benchmark.py (cold-pass timings over a binary; not a pytest test)
+             build_funcdb.py (harvest the function-signature corpus from a manifest of binaries) + funcdb_manifest.py (resolve apt + from-source libraries into that manifest on a CI runner)
+.github/workflows/  ci.yml (lint/type/tone/test matrix) + build-funcdb.yml (scheduled corpus rebuild, commits to main)
 action.yml   composite GitHub Action wrapping `deglyph scan`; examples/deglyph-scan.yml is a consumer workflow
 deglyph.sh   self-bootstrapping launcher; deglyph.bat is the Windows equivalent
 ```

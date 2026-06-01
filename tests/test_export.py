@@ -17,7 +17,7 @@ SAMPLE = os.path.join(os.path.dirname(__file__), "..", "samples", "demo.exe")
 
 def test_schema_version_is_pinned():
     # A change to the document shape must bump this deliberately.
-    assert export.SCHEMA_VERSION == 1
+    assert export.SCHEMA_VERSION == 2
 
 
 def test_build_export_on_synthetic_image(code_image):
@@ -38,6 +38,10 @@ def test_build_export_on_synthetic_image(code_image):
     # CFG is opt-in
     assert "cfg" not in doc
     assert "cfg" in export.build_export(img, include_cfg=True)
+    # Function identifications are opt-in too (key present only when requested).
+    assert "function_identifications" not in doc
+    idoc = export.build_export(img, include_identify=True)
+    assert isinstance(idoc["function_identifications"], list)
     # the whole document is JSON-serializable
     json.dumps(doc)
 

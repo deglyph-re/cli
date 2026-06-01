@@ -78,6 +78,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "  scan PATH      scan a binary/dir for hardening posture, secrets,\n"
             "                 linked libraries, CVEs, risky imports, and drift\n"
             "  sbom PATH      emit a CycloneDX or SPDX bill of materials\n"
+            "  diff OLD NEW   semantic function-level diff between two builds\n"
+            "  knowledge ...  export/import renames keyed by function content hash\n"
+            "  attest PATH    emit a signed, machine-checkable scan attestation\n"
+            "  verify-attest  check an attestation's digest and signature\n"
             "  login TOKEN    store a hosted-AI token (Pro tier); logout clears it\n"
             "\nwith no binary, deglyph opens the interface on its welcome screen."
         ),
@@ -156,8 +160,16 @@ def main(argv: list[str] | None = None) -> int:
         return _sbom_cli(argv[1:])
     if argv and argv[0] == "export":
         return _export_cli(argv[1:])
+    if argv and argv[0] == "diff":
+        return _diff_cli(argv[1:])
     if argv and argv[0] == "project":
         return _project_cli(argv[1:])
+    if argv and argv[0] == "knowledge":
+        return _knowledge_cli(argv[1:])
+    if argv and argv[0] == "attest":
+        return _attest_cli(argv[1:])
+    if argv and argv[0] == "verify-attest":
+        return _verify_attest_cli(argv[1:])
     if argv and argv[0] in ("login", "logout"):
         return _account_cli(argv[0], argv[1:])
 
@@ -305,6 +317,16 @@ def _build_scan_parser() -> argparse.ArgumentParser:
         help="extra library signature database (JSON) merged with the built-ins",
     )
     ap.add_argument(
+        "--identify",
+        action="store_true",
+        help="identify functions against the signature corpus (runs discovery; slower)",
+    )
+    ap.add_argument(
+        "--func-signatures",
+        metavar="PATH",
+        help="extra function-signature corpus (JSON) merged with the bundled one",
+    )
+    ap.add_argument(
         "--ignore",
         action="append",
         metavar="RULE",
@@ -387,6 +409,8 @@ def _scan_cli(argv: list[str]) -> int:
                 cve=args.cve,
                 offline=args.offline,
                 lib_signatures=args.lib_signatures,
+                identify=args.identify,
+                func_signatures=args.func_signatures,
                 ignore=ignore,
                 ignore_fp=ignore_fp,
                 rule_config=rule_config,
@@ -493,6 +517,11 @@ def _export_cli(argv: list[str]) -> int:
         help="include per-function control-flow blocks (slower, larger)",
     )
     ap.add_argument(
+        "--identify",
+        action="store_true",
+        help="add function identifications against the corpus (runs discovery)",
+    )
+    ap.add_argument(
         "--max-funcs",
         type=int,
         metavar="N",
@@ -510,6 +539,7 @@ def _export_cli(argv: list[str]) -> int:
             fmt=args.fmt,
             arch=_arch(args.arch),
             include_cfg=args.cfg,
+            include_identify=args.identify,
             max_funcs=args.max_funcs,
         )
     except Exception as e:
@@ -519,6 +549,62 @@ def _export_cli(argv: list[str]) -> int:
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(text)
+    else:
+        print(text)
+    return 0
+
+
+def _diff_cli(argv: list[str]) -> int:
+    """`deglyph diff OLD NEW` - semantic function-level diff between two builds."""
+    from .re import bindiff
+    from .re.discover import discover_functions
+
+    ap = argparse.ArgumentParser(
+        prog="deglyph diff",
+        description=(
+            "Match functions across two builds by content: unchanged / modified "
+            "(with a similarity) / added / removed."
+        ),
+    )
+    ap.add_argument("baseline", help="the prior build")
+    ap.add_argument("current", help="the new build")
+    ap.add_argument("--format", choices=("text", "json", "markdown"), default="text")
+    ap.add_argument("--fmt", help="force container format (PE/ELF/MachO)")
+    ap.add_argument("--arch", help="force architecture (x86/x64/arm/arm64)")
+    ap.add_argument(
+        "--min-similarity",
+        type=float,
+        default=0.85,
+        metavar="F",
+        help="Jaccard floor for calling a pair modified (default: 0.85)",
+    )
+    ap.add_argument("--output", "-o", help="write to this file (default: stdout)")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--debug", action="store_true")
+    args = ap.parse_args(argv)
+    _setup_logging(verbose=args.verbose, debug=args.debug)
+
+    arch = _arch(args.arch)
+    try:
+        base = load_image(_resolve_binary(args.baseline), fmt=args.fmt, arch=arch)
+        cur = load_image(_resolve_binary(args.current), fmt=args.fmt, arch=arch)
+    except Exception as e:
+        print(f"deglyph diff: {e}", file=sys.stderr)
+        return 1
+    # Recover unexported functions on both sides so the diff sees them.
+    discover_functions(base)
+    discover_functions(cur)
+
+    deltas = bindiff.diff_functions(cur, base, min_similarity=args.min_similarity)
+    if args.format == "json":
+        text = json.dumps(bindiff.diff_json(deltas), indent=2)
+    elif args.format == "markdown":
+        text = bindiff.diff_markdown(deltas)
+    else:
+        text = bindiff.diff_text(deltas)
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(text + "\n")
     else:
         print(text)
     return 0
@@ -580,6 +666,223 @@ def _project_cli(argv: list[str]) -> int:
         f"{len(anno.bookmarks)} bookmark(s) for {os.path.basename(args.binary)}"
     )
     return 0
+
+
+def _knowledge_cli(argv: list[str]) -> int:
+    """`deglyph knowledge export|import` - share renames keyed by function content.
+
+    Unlike `project` (renames keyed by address), the knowledge document keys each
+    rename and note by the function's content hash, so it reattaches to the same
+    function in a different build or on another machine where the address moved.
+    """
+    from . import store
+    from .re.discover import discover_functions
+
+    ap = argparse.ArgumentParser(
+        prog="deglyph knowledge",
+        description="Export or import renames keyed by function content hash.",
+    )
+    ap.add_argument("action", choices=("export", "import"))
+    ap.add_argument("binary", help="the binary whose functions are keyed")
+    ap.add_argument(
+        "--file",
+        "-f",
+        required=True,
+        help="knowledge file to write (export) or read (import)",
+    )
+    ap.add_argument("--fmt", help="force container format (PE/ELF/MachO)")
+    ap.add_argument("--arch", help="force architecture (x86/x64/arm/arm64)")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--debug", action="store_true")
+    args = ap.parse_args(argv)
+    _setup_logging(verbose=args.verbose, debug=args.debug)
+
+    try:
+        image = load_image(
+            _resolve_binary(args.binary), fmt=args.fmt, arch=_arch(args.arch)
+        )
+    except Exception as e:
+        print(f"deglyph knowledge: {e}", file=sys.stderr)
+        return 1
+    discover_functions(image)
+
+    if args.action == "export":
+        anno = store.load(args.binary)
+        if not anno.names and not anno.comments:
+            print(
+                "deglyph knowledge: nothing to export (no renames or notes)",
+                file=sys.stderr,
+            )
+            return 1
+        doc = store.to_knowledge(image, anno)
+        try:
+            with open(args.file, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh, indent=2)
+        except OSError as e:
+            print(f"deglyph knowledge: {e}", file=sys.stderr)
+            return 1
+        print(
+            f"wrote {len(doc['names'])} rename(s) and {len(doc['comments'])} "
+            f"note(s) to {args.file}"
+        )
+        return 0
+
+    try:
+        with open(args.file, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as e:
+        print(f"deglyph knowledge: {e}", file=sys.stderr)
+        return 1
+    incoming = store.apply_knowledge(image, data)
+    if incoming.is_empty():
+        print("deglyph knowledge: no functions matched the knowledge file")
+        return 0
+    # Merge onto any existing annotations rather than clobbering them.
+    anno = store.load(args.binary)
+    anno.names.update(incoming.names)
+    anno.comments.update(incoming.comments)
+    anno.save()
+    print(
+        f"applied {len(incoming.names)} rename(s) and {len(incoming.comments)} "
+        f"note(s) to {os.path.basename(args.binary)}"
+    )
+    return 0
+
+
+def _attest_cli(argv: list[str]) -> int:
+    """`deglyph attest BINARY` - emit a signed, machine-checkable scan attestation."""
+    from . import __version__, attest
+    from . import scan as scanmod
+    from .re.funcdb import BUNDLED_VERSION
+
+    ap = argparse.ArgumentParser(
+        prog="deglyph attest",
+        description=(
+            "Scan a binary and emit a tamper-evident (optionally signed) "
+            "attestation of its findings."
+        ),
+    )
+    ap.add_argument("binary", nargs="?", help="binary to attest")
+    ap.add_argument(
+        "--sign", metavar="KEY", help="ed25519 private-key PEM to sign the attestation"
+    )
+    ap.add_argument(
+        "--gen-key",
+        nargs=2,
+        metavar=("PRIV", "PUB"),
+        help="generate an ed25519 keypair to these paths and exit",
+    )
+    ap.add_argument("--fmt", help="force container format (PE/ELF/MachO)")
+    ap.add_argument("--arch", help="force architecture (x86/x64/arm/arm64)")
+    ap.add_argument("--output", "-o", help="write to this file (default: stdout)")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--debug", action="store_true")
+    args = ap.parse_args(argv)
+    _setup_logging(verbose=args.verbose, debug=args.debug)
+
+    if args.gen_key:
+        reason = attest.unavailable_reason()
+        if reason:
+            print(f"deglyph attest: {reason}", file=sys.stderr)
+            return 1
+        priv_pem, pub_pem = attest.generate_keypair()
+        try:
+            with open(args.gen_key[0], "wb") as fh:
+                fh.write(priv_pem)
+            with open(args.gen_key[1], "wb") as fh:
+                fh.write(pub_pem)
+        except OSError as e:
+            print(f"deglyph attest: {e}", file=sys.stderr)
+            return 1
+        print(f"wrote private key {args.gen_key[0]} and public key {args.gen_key[1]}")
+        return 0
+
+    if not args.binary:
+        print(
+            "deglyph attest: a binary is required (or use --gen-key)", file=sys.stderr
+        )
+        return 2
+    if args.sign and attest.unavailable_reason():
+        print(f"deglyph attest: {attest.unavailable_reason()}", file=sys.stderr)
+        return 1
+
+    target = _resolve_binary(args.binary)
+    try:
+        findings = scanmod.scan_file(target, fmt=args.fmt, arch=_arch(args.arch))
+    except Exception as e:
+        print(f"deglyph attest: {e}", file=sys.stderr)
+        return 1
+    doc = attest.build_attestation(
+        target, findings, tool_version=__version__, funcdb_version=BUNDLED_VERSION
+    )
+    if args.sign:
+        try:
+            with open(args.sign, "rb") as fh:
+                doc = attest.sign_attestation(doc, fh.read())
+        except OSError as e:
+            print(f"deglyph attest: {e}", file=sys.stderr)
+            return 1
+    text = json.dumps(doc, indent=2)
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    else:
+        print(text)
+    return 0
+
+
+def _verify_attest_cli(argv: list[str]) -> int:
+    """`deglyph verify-attest DOC` - check an attestation's digest and signature."""
+    from . import attest
+
+    ap = argparse.ArgumentParser(
+        prog="deglyph verify-attest",
+        description=(
+            "Verify an attestation's digest, and its signature when a public "
+            "key is given."
+        ),
+    )
+    ap.add_argument("attestation", help="attestation JSON to verify")
+    ap.add_argument(
+        "--pub", metavar="KEY", help="ed25519 public-key PEM to check the signature"
+    )
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--debug", action="store_true")
+    args = ap.parse_args(argv)
+    _setup_logging(verbose=args.verbose, debug=args.debug)
+
+    try:
+        with open(args.attestation, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as e:
+        print(f"deglyph verify-attest: {e}", file=sys.stderr)
+        return 1
+    pub_pem = None
+    if args.pub:
+        if attest.unavailable_reason():
+            print(
+                f"deglyph verify-attest: {attest.unavailable_reason()}", file=sys.stderr
+            )
+            return 1
+        try:
+            with open(args.pub, "rb") as fh:
+                pub_pem = fh.read()
+        except OSError as e:
+            print(f"deglyph verify-attest: {e}", file=sys.stderr)
+            return 1
+
+    res = attest.verify_attestation(doc, pub_pem=pub_pem)
+    print(f"digest: {'ok' if res['digest_ok'] else 'MISMATCH'}")
+    if res["signature_ok"] is None:
+        suffix = "" if args.pub else " (no public key given)"
+        print(f"signature: not checked{suffix}")
+    else:
+        print(f"signature: {'ok' if res['signature_ok'] else 'INVALID'}")
+    if args.pub:
+        ok = res["digest_ok"] and res["signature_ok"] is True
+    else:
+        ok = res["digest_ok"]
+    return 0 if ok else 1
 
 
 def _headless(

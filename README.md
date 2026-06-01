@@ -151,6 +151,30 @@ between machines (`deglyph project export/import`)** writes your renames, notes,
 bookmarks, and saved view to a path-independent file you can reattach to the
 binary elsewhere.
 
+**Identify functions (`deglyph scan --identify`).** Match a recovered
+`sub_<address>` against a corpus of function signatures to name it as, for
+example, `inflate` from `zlib`. The signature is the function's normalized
+instruction stream, so it survives a rebuild that moved the code; an exact match
+is high confidence, a near match carries a similarity score. The corpus is built
+in CI over many well-known libraries and shipped with the tool. See the
+[Function Database](doc/help/Function-Database.md).
+
+**Diff two builds (`deglyph diff OLD NEW`).** Match functions across builds by
+content, not by name or address: unchanged, modified (with a similarity), added,
+or removed. The same signatures power the `scan --baseline` drift report, which
+now reports a recompiled function as modified instead of removed plus added.
+
+**Share your naming (`deglyph knowledge export/import`).** Unlike a project file
+(keyed by address), a knowledge file keys each rename and note by the function's
+content hash, so it reattaches to the same function in a different build or on
+another machine.
+
+**Attest a scan (`deglyph attest`).** Emit a tamper-evident record of a scan: the
+tool version, the binary's hash, and the finding set, under a sha256 digest, with
+an optional ed25519 signature (`pip install 'deglyph[sign]'`). `deglyph
+verify-attest` checks the digest and, with the public key, the signature, so a
+scan result becomes a verifiable, diffable artifact.
+
 **Annotate and keep it.** Rename a function (`n`), add a note (`;`), or bookmark
 it (`b`). Annotations are keyed by address and saved to a per-user sidecar
 (`~/.deglyph/annotations/`, or `$DEGLYPH_STORE_DIR`), so they survive across sessions
@@ -255,10 +279,15 @@ deglyph BINARY --nerd           # Font Awesome icons (needs a Nerd Font terminal
 deglyph scan PATH               # CI scan: hardening, secrets, libs, CVEs, imports, drift
 deglyph scan PATH --format sarif  # emit a SARIF 2.1.0 report for code scanning
 deglyph scan PATH --baseline OLD  # also report what changed since a prior build
+deglyph scan PATH --identify    # name recovered functions against the signature corpus
+deglyph diff OLD NEW            # semantic function-level diff between two builds
 deglyph sbom PATH               # CycloneDX (or --format spdx) bill of materials
-deglyph export PATH             # versioned JSON analysis document (--cfg, --max-funcs)
+deglyph export PATH             # versioned JSON analysis document (--cfg, --identify, --max-funcs)
 deglyph project export BINARY -f work.json   # portable renames / notes / bookmarks
 deglyph project import BINARY -f work.json   # reattach them on another machine
+deglyph knowledge export BINARY -f work.json # renames keyed by function content hash
+deglyph attest PATH             # signed, machine-checkable scan attestation
+deglyph verify-attest DOC --pub key.pem      # verify an attestation's digest and signature
 deglyph login TOKEN             # store a hosted-AI (Pro) token; logout clears it
 deglyph --version
 ```

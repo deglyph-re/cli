@@ -15,6 +15,9 @@ Quick-reference table of recurring pitfalls and their fixes. Full per-subsystem 
 | Editing the search box in code without locking | Set `_input_locked`; queued `Input.Changed` events carry stale values. |
 | `nearest_func` for a call target in symbolization | Use `func_at` (exact); `nearest_func` names an unrelated export. |
 | Reporting a `scan` finding as a confirmed secret | Heuristic. Say "candidate", not "leak". |
+| Reporting a `funcdb` / `bindiff` match as a proven identity | It is a content-hash heuristic; two functions can share a shape. Say "candidate", confirm in disassembly. |
+| Adding a second function-identity hash | There is one engine (`re/funcsig`); `scan`, `funcdb`, `bindiff`, and `store` knowledge all route through `func_sig`. |
+| Importing `cryptography` at module top in `attest.py` | Lazy-import it (the `sign` extra); guard with `signing_available()` so the tool stays usable without it. |
 | Loosening `secret/credential-keyword` to a bare keyword match | It must require a value (`_credential_evidence`); a bare keyword floods the report (167 noise hits). |
 | Adding a `doc/help` page without updating `help.json` (or vice versa) | The site renders only indexed files; keep them in sync with unique `id`s. |
 | Putting Pro logic or a key in the public client | The gate is server-side; `HostedBackend` is a token-bearing HTTP client only. |

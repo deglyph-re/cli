@@ -56,6 +56,7 @@ RULES: dict[str, tuple[str, str]] = {
     "diff/added-import": ("warning", "Imported API added since the baseline build"),
     "diff/added-function": ("note", "Function added since the baseline build"),
     "diff/removed-function": ("note", "Function removed since the baseline build"),
+    "diff/modified-function": ("note", "Function changed since the baseline build"),
     "harden/no-aslr": ("warning", "ASLR is disabled (DYNAMIC_BASE / PIE missing)"),
     "harden/no-dep": ("warning", "DEP / NX is disabled (data pages remain executable)"),
     "harden/no-cfg": ("note", "Control Flow Guard is not enabled"),
@@ -69,6 +70,7 @@ RULES: dict[str, tuple[str, str]] = {
     "harden/no-safeseh": ("note", "SafeSEH handler table is absent (PE32 only)"),
     "harden/no-bti-pac": ("note", "ARM BTI / PAC hints are not advertised"),
     "lib/detected": ("note", "Third-party library identified by fingerprint"),
+    "lib/function": ("note", "Function identified by signature against the corpus"),
     "cve/known": ("error", "Known CVE against a detected library version"),
     "cve/not-checked": ("note", "CVE database not checked (offline or unreachable)"),
 }
@@ -554,6 +556,19 @@ def _lib_finding(h) -> Finding:
     return Finding(rule, level, msg, "fingerprint", h.offset, len(h.snippet))
 
 
+def _funcid_finding(m) -> Finding:
+    """A `lib/function` finding for a corpus-identified function (a fact).
+
+    The message names the recovered function, the library function it matches,
+    and the confidence so the reader can weigh an exact hit against a fuzzy one.
+    """
+    rule = "lib/function"
+    level, _desc = RULES[rule]
+    label = f"{m.lib} {m.version}" if m.version else m.lib
+    msg = f"{m.current_name} is {m.func} ({label}) [{m.confidence}]"
+    return Finding(rule, level, msg, f"{m.va:#x}")
+
+
 def _has_stack_canary(image: Image) -> bool:
     for f in image.funcs:
         if f.name in _CANARY_SYMBOLS:
@@ -711,78 +726,57 @@ def _name_set(image: Image, kind: str | None) -> set[str]:
     return {f.name for f in image.funcs if kind is None or f.kind == kind}
 
 
-# Number of leading instructions hashed for a function's structural identity.
-_IDENTITY_INSNS = 24
-
-
 def _func_identity(image: Image, va: int) -> str:
     """A relocation-stable identity for the function at `va` (for diffing).
 
     A real symbol name is used as-is; a recovered `sub_<va>` name churns across
-    builds (the VA moves), so instead hash the sequence of leading instruction
-    *mnemonics*. Mnemonics carry no addresses or immediates, so a function that
-    only moved (relocated) keeps its identity, while a changed body does not.
-    Falls back to the name if disassembly yields nothing.
+    builds (the VA moves), so instead hash the function's normalized instruction
+    stream via the shared content-identity engine (`re/funcsig`). The signature
+    drops addresses, immediates, and register names, so a function that only
+    moved keeps its identity while a changed body does not. Falls back to the
+    name if disassembly yields nothing.
     """
-    try:
-        from .re.cfg import function_insns
+    from .re.funcsig import func_sig
 
-        insns = function_insns(image, va, max_insns=_IDENTITY_INSNS)
-        mnems = [i.mnemonic for i in insns[:_IDENTITY_INSNS]]
-        if mnems:
-            digest = hashlib.sha1(" ".join(mnems).encode("utf-8", "replace"))
-            return "shape:" + digest.hexdigest()[:16]
-    except Exception:
-        pass
-    return ""
+    sig = func_sig(image, va)
+    return ("shape:" + sig.exact[:16]) if sig else ""
 
 
-def _func_identities(image: Image) -> dict[str, str]:
-    """Map each non-import function's display name to its structural identity.
-
-    A named function maps to its own name (stable already); a `sub_*` maps to its
-    shape hash so a moved-but-identical function is not seen as removed+added.
-    """
-    out: dict[str, str] = {}
-    for f in image.funcs:
-        if f.kind == "import":
-            continue
-        if f.name.startswith("sub_"):
-            ident = _func_identity(image, f.va) or f.name
-        else:
-            ident = f.name
-        out[f.name] = ident
-    return out
+# FuncDelta kind -> the diff rule id it maps to (an unchanged function is dropped).
+_DELTA_RULE = {
+    "added": "diff/added-function",
+    "removed": "diff/removed-function",
+    "modified": "diff/modified-function",
+}
 
 
 def diff_baseline(image: Image, baseline: Image) -> list[Finding]:
     """Report functions and imports that differ from a baseline build.
 
-    Imports diff by name (they are always named). Functions diff by a stable
-    identity: a real symbol by name, a stripped `sub_*` by a relocation-immune
-    structural hash (`_func_identity`), so a function that merely moved between
-    builds is not reported as removed + added.
+    Imports diff by name (they are always named). Functions diff by content via
+    `re/bindiff`: an exact-hash pass pairs unchanged functions, a fuzzy pass pairs
+    recompiled ones (reported as `diff/modified-function` with a similarity), and
+    the rest are added / removed. A function that merely moved between builds is
+    not reported as removed + added.
     """
+    from .re.bindiff import diff_functions
+
     out: list[Finding] = []
     cur_imp, base_imp = _name_set(image, "import"), _name_set(baseline, "import")
     for name in sorted(cur_imp - base_imp):
         level, desc = RULES["diff/added-import"]
         out.append(Finding("diff/added-import", level, f"{desc}: {name}", "diff"))
 
-    cur = _func_identities(image)
-    base = _func_identities(baseline)
-    cur_ids, base_ids = set(cur.values()), set(base.values())
-    # name-by-identity so the message shows a readable name for each changed id
-    cur_by_id = {ident: nm for nm, ident in cur.items()}
-    base_by_id = {ident: nm for nm, ident in base.items()}
-    for rule, ids, names_by_id in (
-        ("diff/added-function", cur_ids - base_ids, cur_by_id),
-        ("diff/removed-function", base_ids - cur_ids, base_by_id),
-    ):
+    deltas = diff_functions(image, baseline)
+    for d in sorted(deltas, key=lambda d: (d.kind, d.name)):
+        rule = _DELTA_RULE.get(d.kind)
+        if rule is None:
+            continue
         level, desc = RULES[rule]
-        for ident in sorted(ids):
-            name = names_by_id.get(ident, ident)
-            out.append(Finding(rule, level, f"{desc}: {name}", "diff"))
+        msg = f"{desc}: {d.name}"
+        if d.kind == "modified":
+            msg = f"{msg} ({d.similarity:.0%} similar)"
+        out.append(Finding(rule, level, msg, "diff"))
     return out
 
 
@@ -895,6 +889,8 @@ def scan_image(
     cve: bool = False,
     offline: bool = False,
     lib_signatures: str | None = None,
+    identify: bool = False,
+    func_signatures: str | None = None,
     ignore: set[str] | None = None,
     ignore_fp: set[str] | None = None,
     rule_config: dict[str, str] | None = None,
@@ -904,9 +900,11 @@ def scan_image(
     `hardening` and `fingerprint` default on (high signal, low noise). `cve`
     defaults off because it issues network requests to osv.dev; enabling it
     after a fingerprint pass surfaces known vulnerabilities against detected
-    library versions. `ignore` drops findings by rule (exact id, or a category
-    prefix ending in '/') and `ignore_fp` by per-finding fingerprint, so the
-    report and the exit code agree.
+    library versions. `identify` is opt-in: it runs function discovery and
+    matches each function against the signature corpus (`re/funcdb`), which is
+    slower. `ignore` drops findings by rule (exact id, or a category prefix
+    ending in '/') and `ignore_fp` by per-finding fingerprint, so the report and
+    the exit code agree.
     """
     with open(image.path, "rb") as fh:
         data = fh.read()
@@ -925,6 +923,13 @@ def scan_image(
         from .cve import scan_cve
 
         findings += scan_cve(lib_hits, offline=offline)
+    if identify:
+        from .re.discover import discover_functions
+        from .re.funcdb import identify_functions, load_func_db
+
+        discover_functions(image)
+        db = load_func_db(func_signatures)
+        findings += [_funcid_finding(m) for m in identify_functions(image, db)]
     if baseline is not None:
         findings += diff_baseline(image, baseline)
     findings = _apply_rule_config(findings, rule_config or {})
@@ -948,6 +953,8 @@ def scan_file(
     cve: bool = False,
     offline: bool = False,
     lib_signatures: str | None = None,
+    identify: bool = False,
+    func_signatures: str | None = None,
     ignore: set[str] | None = None,
     ignore_fp: set[str] | None = None,
     rule_config: dict[str, str] | None = None,
@@ -963,6 +970,8 @@ def scan_file(
         cve=cve,
         offline=offline,
         lib_signatures=lib_signatures,
+        identify=identify,
+        func_signatures=func_signatures,
         ignore=ignore,
         ignore_fp=ignore_fp,
         rule_config=rule_config,

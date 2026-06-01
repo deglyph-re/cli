@@ -6,8 +6,8 @@ Detailed reference lives in `doc/claude/`. Read the relevant sub-doc before work
 
 | Document | Read it when |
 |----------|--------------|
-| [doc/claude/architecture.md](doc/claude/architecture.md) | Touching any subsystem: the address model, fat Mach-O slices, thunk resolution, the TUI tree/render/nav, discovery, the AI assistant, the scanner, hardening, fingerprint, SBOM, CVE, report, the GitHub Action, or the help manual. 18 invariants; the heuristics interlock, so read the entry before editing. |
-| [doc/claude/common-mistakes.md](doc/claude/common-mistakes.md) | The full recurring-pitfall table (27 rows). The most frequent are inlined under Common Mistakes below. |
+| [doc/claude/architecture.md](doc/claude/architecture.md) | Touching any subsystem: the address model, fat Mach-O slices, thunk resolution, the TUI tree/render/nav, discovery, the AI assistant, the scanner, hardening, fingerprint, SBOM, CVE, report, the GitHub Action, the help manual, the function-identity engine, function fingerprinting, semantic diff, the knowledge base, or attestations. 23 invariants; the heuristics interlock, so read the entry before editing. |
+| [doc/claude/common-mistakes.md](doc/claude/common-mistakes.md) | The full recurring-pitfall table (30 rows). The most frequent are inlined under Common Mistakes below. |
 | [doc/claude/extending.md](doc/claude/extending.md) | Adding a pattern detector, or a new container format / architecture. |
 | [doc/claude/directory-structure.md](doc/claude/directory-structure.md) | Finding where a subsystem lives: the annotated file tree of `deglyph/`, `tests/`, `doc/`, `scripts/`. |
 
@@ -62,11 +62,11 @@ The annotated file tree (every module's one-line role) lives in **[doc/claude/di
 
 ## Architecture Invariants
 
-The 18 per-subsystem invariants live in **[doc/claude/architecture.md](doc/claude/architecture.md)**. They are not optional background: the heuristics interlock (e.g. `thunk_chain` -> `_has_body` -> the pattern detectors), and several encode hard contracts (VAs everywhere, fat Mach-O offset folding, single-writer TUI render, server-side Pro gate, heuristics-are-not-proofs). Read the entry for the subsystem you are about to touch before editing it.
+The 23 per-subsystem invariants live in **[doc/claude/architecture.md](doc/claude/architecture.md)**. They are not optional background: the heuristics interlock (e.g. `thunk_chain` -> `_has_body` -> the pattern detectors), and several encode hard contracts (VAs everywhere, fat Mach-O offset folding, single-writer TUI render, server-side Pro gate, heuristics-are-not-proofs). Read the entry for the subsystem you are about to touch before editing it.
 
 ## Common Mistakes
 
-The full table (27 rows) is in **[doc/claude/common-mistakes.md](doc/claude/common-mistakes.md)**. The highest-frequency ones:
+The full table (30 rows) is in **[doc/claude/common-mistakes.md](doc/claude/common-mistakes.md)**. The highest-frequency ones:
 
 | Mistake | Fix |
 |---------|-----|

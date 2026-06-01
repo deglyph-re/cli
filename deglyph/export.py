@@ -44,7 +44,8 @@ log = logging.getLogger(__name__)
 
 # Bump on any breaking change to the document shape (a removed/renamed field or a
 # changed meaning). Additive fields do not require a bump. Pinned by tests.
-SCHEMA_VERSION = 1
+# v2 added the opt-in `function_identifications` section (corpus fingerprinting).
+SCHEMA_VERSION = 2
 
 
 def _sha256(path: str) -> str:
@@ -185,17 +186,49 @@ def _findings(image: Image) -> list:
     ]
 
 
+def _identifications(image: Image) -> list:
+    """Corpus function identifications for the image (opt-in; runs discovery)."""
+    from .re.discover import discover_functions
+    from .re.funcdb import identify_functions, load_func_db
+
+    discover_functions(image)
+    db = load_func_db()
+    return [
+        {
+            "va": hex(m.va),
+            "name": m.current_name,
+            "lib": m.lib,
+            "func": m.func,
+            "version": m.version,
+            "ecosystem": m.ecosystem,
+            "confidence": m.confidence,
+            "similarity": round(m.similarity, 4),
+            "evidence": m.evidence,
+        }
+        for m in identify_functions(image, db)
+    ]
+
+
 def build_export(
-    image: Image, *, include_cfg: bool = False, max_funcs: int | None = None
+    image: Image,
+    *,
+    include_cfg: bool = False,
+    include_identify: bool = False,
+    max_funcs: int | None = None,
 ) -> dict[str, Any]:
     """A versioned analysis document for `image`, for consumption by other tools.
 
     Covers functions, cross-references, referenced data, the structure detectors,
     string literals, and scanner findings; per-function CFG blocks are added when
-    `include_cfg` is set. `max_funcs` caps the per-function sections (functions,
-    xrefs, detectors, cfg) for a quick partial dump; strings and findings are
-    whole-image regardless. Output is deterministic (sorted by VA).
+    `include_cfg` is set. `include_identify` runs function discovery and adds a
+    `function_identifications` section (corpus fingerprinting; slower). `max_funcs`
+    caps the per-function sections (functions, xrefs, detectors, cfg) for a quick
+    partial dump; strings and findings are whole-image regardless. Output is
+    deterministic (sorted by VA).
     """
+    # Recover unexported functions first so they appear in every section.
+    identifications = _identifications(image) if include_identify else None
+
     funcs = sorted(image.funcs, key=lambda f: (f.va, f.name))
     # Guard against a negative cap: funcs[:-5] would silently keep all-but-the-
     # last-5 instead of the first 5. Clamp to 0 (an explicit empty selection).
@@ -254,6 +287,8 @@ def build_export(
     }
     if include_cfg:
         doc["cfg"] = cfgs
+    if identifications is not None:
+        doc["function_identifications"] = identifications
     if cap is not None and cap < len(funcs):
         doc["truncated"] = {
             "functions_shown": len(capped),
@@ -268,8 +303,14 @@ def export_file(
     fmt: str | None = None,
     arch=None,
     include_cfg: bool = False,
+    include_identify: bool = False,
     max_funcs: int | None = None,
 ) -> dict[str, Any]:
     """Load `path` and build its analysis export document."""
     img = load_image(path, fmt=fmt, arch=arch)
-    return build_export(img, include_cfg=include_cfg, max_funcs=max_funcs)
+    return build_export(
+        img,
+        include_cfg=include_cfg,
+        include_identify=include_identify,
+        max_funcs=max_funcs,
+    )

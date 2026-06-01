@@ -1,0 +1,111 @@
+name: build-funcdb
+
+# Rebuild the function-signature corpus over well-known libraries and commit it.
+# Sources are a hybrid: apt-installed distribution libraries (breadth) plus a few
+# key libraries built from source with symbols (depth). Runs weekly and on demand.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-funcdb
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ZLIB_VERSION: "1.3.1"
+      LZ4_VERSION: "1.9.4"
+      SQLITE_YEAR: "2024"
+      SQLITE_AMALG: "3460100"
+      SRC: ${{ github.workspace }}/_funcdb_src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deglyph
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install distribution libraries (apt fast path)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libssl3 libcurl4 libzstd1 libbz2-1.0 liblzma5 libpcre2-8-0 libexpat1
+
+      - name: Build key libraries from source (with symbols)
+        run: |
+          set -x
+          mkdir -p "$SRC"
+          cd "$SRC"
+
+          # zlib: configure honors CFLAGS; -g keeps symbols.
+          curl -fsSL "https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz" -o zlib.tar.gz || true
+          if [ -f zlib.tar.gz ]; then
+            tar xf zlib.tar.gz
+            ( cd "zlib-${ZLIB_VERSION}" && CFLAGS="-g -O2" ./configure && make -j"$(nproc)" ) || true
+          fi
+
+          # lz4: a plain make builds lib/liblz4.so.
+          curl -fsSL "https://github.com/lz4/lz4/archive/refs/tags/v${LZ4_VERSION}.tar.gz" -o lz4.tar.gz || true
+          if [ -f lz4.tar.gz ]; then
+            tar xf lz4.tar.gz
+            ( cd "lz4-${LZ4_VERSION}" && make -j"$(nproc)" CFLAGS="-g -O2" ) || true
+          fi
+
+          # sqlite: build a shared object from the amalgamation, unstripped.
+          curl -fsSL "https://sqlite.org/${SQLITE_YEAR}/sqlite-amalgamation-${SQLITE_AMALG}.zip" -o sqlite.zip || true
+          if [ -f sqlite.zip ]; then
+            unzip -q sqlite.zip
+            ( cd "sqlite-amalgamation-${SQLITE_AMALG}" \
+              && gcc -g -O2 -fPIC -shared sqlite3.c -o libsqlite3.so ) || true
+          fi
+
+      - name: Resolve sqlite version
+        id: sqlite
+        run: |
+          # The amalgamation number 3460100 maps to 3.46.1.
+          n="${SQLITE_AMALG}"
+          major=$(( ${n:0:1} ))
+          minor=$(( 10#${n:1:2} ))
+          patch=$(( 10#${n:3:2} ))
+          echo "version=${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the target manifest
+        env:
+          SQLITE_VERSION: ${{ steps.sqlite.outputs.version }}
+        run: |
+          python scripts/funcdb_manifest.py \
+            --source "zlib:${ZLIB_VERSION}:${SRC}/zlib-${ZLIB_VERSION}/libz.so.${ZLIB_VERSION}" \
+            --source "lz4:${LZ4_VERSION}:${SRC}/lz4-${LZ4_VERSION}/lib/liblz4.so" \
+            --source "sqlite:${SQLITE_VERSION}:${SRC}/sqlite-amalgamation-${SQLITE_AMALG}/libsqlite3.so" \
+            --output manifest.json
+
+      - name: Build the corpus
+        run: python scripts/build_funcdb.py --manifest manifest.json
+
+      - name: Clean up build artifacts
+        run: rm -rf "$SRC" manifest.json
+
+      - name: Commit the regenerated corpus
+        run: |
+          git config user.name "deglyph-bot"
+          git config user.email "noreply@deglyph.dev"
+          git add deglyph/data/funcdb.json doc/help/Function-Database.md doc/help/help.json
+          if git diff --cached --quiet; then
+            echo "corpus unchanged; nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore(funcdb): regenerate function-signature corpus"
+          git push
