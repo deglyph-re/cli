@@ -10,6 +10,7 @@ the result is cached on the Image so repeated lookups in the TUI are instant.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from ..cache import cache_get, cache_put, file_sha256
@@ -26,15 +27,18 @@ class XrefIndex:
     data: dict[int, list[int]]
 
 
-def _build_index(image: Image) -> XrefIndex:
+def _build_index(image: Image, *, max_seconds: float | None = None) -> XrefIndex:
     dis = Disassembler(image)
     to: dict[int, list[int]] = {}
     data: dict[int, list[int]] = {}
     text = image.text
     if not text:
         return XrefIndex(to, data)
+    t0 = time.perf_counter()
     for ins in dis.at(text.va, text.size):
         if ins.addr >= text.end:
+            break
+        if max_seconds is not None and time.perf_counter() - t0 > max_seconds:
             break
         # code edges: direct call / jmp into .text
         if ins.is_call() or ins.mnemonic == "jmp":
@@ -64,7 +68,11 @@ def _deserialize(doc: dict) -> XrefIndex:
     return XrefIndex(_m(doc.get("to")), _m(doc.get("data")))
 
 
-def _index(image: Image) -> XrefIndex:
+def _index(image: Image, *, max_seconds: float | None = None) -> XrefIndex:
+    # A budgeted call returns a possibly-partial index without touching the
+    # cache or the in-memory memo, so a truncated run never poisons later ones.
+    if max_seconds is not None:
+        return _build_index(image, max_seconds=max_seconds)
     cached = getattr(image, "_xref_index", None)
     if cached is not None:
         return cached

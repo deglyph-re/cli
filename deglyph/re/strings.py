@@ -14,6 +14,7 @@ Public: StringLit, DataRef, string_runs, extract_strings, referenced_data.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -122,6 +123,7 @@ def extract_strings(
     limit: int = 4000,
     section: str | None = None,
     raw: bool = False,
+    max_seconds: float | None = None,
 ) -> list[StringLit]:
     """Program string literals in the image, with address, section, and category.
 
@@ -136,9 +138,11 @@ def extract_strings(
     The default-argument call (the whole-image pass the TUI, data view, and
     export all use) is cached on disk by the binary's content hash, so reopening
     an unchanged build skips the scan; non-default arguments always recompute.
+    `max_seconds` bounds the scan by wall clock, returning the partial result so
+    far when exceeded; a budgeted call neither reads nor writes the cache.
     """
     default_args = min_len == 4 and limit == 4000 and section is None and not raw
-    digest = file_sha256(image.path) if default_args else None
+    digest = file_sha256(image.path) if (default_args and max_seconds is None) else None
     if digest is not None:
         cached = cache_get(digest, "strings")
         if cached is not None:
@@ -147,7 +151,10 @@ def extract_strings(
         data = fh.read()
     symbols = {f.name for f in image.funcs if f.name}
     out: list[StringLit] = []
+    t0 = time.perf_counter()
     for off, enc, text in string_runs(data, min_len=min_len):
+        if max_seconds is not None and time.perf_counter() - t0 > max_seconds:
+            break
         va = _off_to_va(image, off)
         sec = image.section_at(va) if va is not None else None
         sec_name = sec.name if sec else ""

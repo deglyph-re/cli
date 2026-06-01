@@ -109,3 +109,15 @@ def test_scan_targets_is_cached_by_file_hash(code_image, tmp_path, monkeypatch):
     assert [(h.va, h.confirmed, h.evidence) for h in second] == [
         (h.va, h.confirmed, h.evidence) for h in first
     ]
+
+
+def test_scan_targets_budget_returns_uncached_partial(
+    code_image, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    img = code_image(CALLER)
+    digest = cache.file_sha256(img.path)
+    # a zero budget returns a valid (possibly empty) list and never caches
+    out = scan_targets(img, max_seconds=0.0)
+    assert isinstance(out, list)
+    assert cache.cache_get(digest, "discover") is None

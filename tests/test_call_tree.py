@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from deglyph import cache
 from deglyph.re import call_tree, callers_of
+from deglyph.re.xref import _index
 
 
 def test_callee_tree_follows_direct_calls(code_image):
@@ -79,3 +80,15 @@ def test_xref_index_is_cached_by_file_hash(code_image, tmp_path, monkeypatch):
         lambda image: (_ for _ in ()).throw(AssertionError("rebuilt despite cache")),
     )
     assert callers_of(img2, 0x100A) == first
+
+
+def test_xref_index_budget_is_uncached(code_image, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    img = code_image(bytes.fromhex("e8 05 00 00 00") + b"\x90" * 5 + b"\xc3")
+    digest = cache.file_sha256(img.path)
+    # a budgeted index is partial-by-design: it neither reads/writes the cache
+    # nor memoizes on the image, so a truncated run can't poison a later one
+    idx = _index(img, max_seconds=0.0)
+    assert isinstance(idx.to, dict)
+    assert cache.cache_get(digest, "xrefs") is None
+    assert getattr(img, "_xref_index", None) is None
