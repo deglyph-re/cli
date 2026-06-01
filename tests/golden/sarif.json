@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "demo.exe"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Stack canaries are not present (no __security_cookie / canary symbol)"
+          },
+          "properties": {
+            "category": "fact"
+          },
+          "ruleId": "harden/no-stack-canary"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "demo.exe"
+                },
+                "region": {
+                  "byteLength": 31,
+                  "byteOffset": 30208
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Credential with an embedded value: 'S3cr3t-demo-API-key-do-not-ship'"
+          },
+          "properties": {
+            "category": "heuristic"
+          },
+          "ruleId": "secret/credential-keyword"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "demo.exe"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Control Flow Guard is not enabled (DllCharacteristics=0x0160 lacks GUARD_CF (0x4000))"
+          },
+          "properties": {
+            "category": "fact"
+          },
+          "ruleId": "harden/no-cfg"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "demo.exe"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Binary carries no code signature (no Authenticode certificate table)"
+          },
+          "properties": {
+            "category": "fact"
+          },
+          "ruleId": "harden/unsigned"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "demo.exe"
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Imports a memory-protection-change API: VirtualProtect (changes page protections; benign in JITs, GC runtimes, plugin loaders)"
+          },
+          "properties": {
+            "category": "heuristic"
+          },
+          "ruleId": "import/memory-protect"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/deglyph-re/cli",
+          "name": "deglyph",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "id": "harden/no-cfg",
+              "name": "harden-no-cfg",
+              "shortDescription": {
+                "text": "Control Flow Guard is not enabled"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "id": "harden/no-stack-canary",
+              "name": "harden-no-stack-canary",
+              "shortDescription": {
+                "text": "Stack canaries are not present"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "id": "harden/unsigned",
+              "name": "harden-unsigned",
+              "shortDescription": {
+                "text": "Binary carries no code signature"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "id": "import/memory-protect",
+              "name": "import-memory-protect",
+              "shortDescription": {
+                "text": "Imports a memory-protection-change API"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "id": "secret/credential-keyword",
+              "name": "secret-credential-keyword",
+              "shortDescription": {
+                "text": "Credential with an embedded value"
+              }
+            }
+          ],
+          "version": "test"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

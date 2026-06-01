@@ -1,0 +1,28 @@
+{
+  "binary": {
+    "arch": "x86-64",
+    "base": "0x140000000",
+    "format": "PE",
+    "name": "demo.exe",
+    "sha256": "X"
+  },
+  "counts": {
+    "detectors": 319,
+    "findings": 5,
+    "functions": 572,
+    "strings": 586,
+    "xrefs": 572
+  },
+  "deglyph_export_version": 1,
+  "tool_name": "deglyph",
+  "top_keys": [
+    "binary",
+    "deglyph_export_version",
+    "detectors",
+    "findings",
+    "functions",
+    "strings",
+    "tool",
+    "xrefs"
+  ]
+}

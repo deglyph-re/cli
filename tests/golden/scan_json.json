@@ -1,0 +1,68 @@
+{
+  "files": [
+    {
+      "findings": [
+        {
+          "category": "fact",
+          "fingerprint": "ad1cb08427e3",
+          "length": 0,
+          "level": "warning",
+          "message": "Stack canaries are not present (no __security_cookie / canary symbol)",
+          "offset": null,
+          "rule": "harden/no-stack-canary",
+          "where": "hardening"
+        },
+        {
+          "category": "heuristic",
+          "fingerprint": "7eaac1ea4ff8",
+          "length": 31,
+          "level": "warning",
+          "message": "Credential with an embedded value: 'S3cr3t-demo-API-key-do-not-ship'",
+          "offset": 30208,
+          "rule": "secret/credential-keyword",
+          "where": "0x140009000"
+        },
+        {
+          "category": "fact",
+          "fingerprint": "3d6475efed1d",
+          "length": 0,
+          "level": "note",
+          "message": "Control Flow Guard is not enabled (DllCharacteristics=0x0160 lacks GUARD_CF (0x4000))",
+          "offset": null,
+          "rule": "harden/no-cfg",
+          "where": "hardening"
+        },
+        {
+          "category": "fact",
+          "fingerprint": "6cd335c19af3",
+          "length": 0,
+          "level": "note",
+          "message": "Binary carries no code signature (no Authenticode certificate table)",
+          "offset": null,
+          "rule": "harden/unsigned",
+          "where": "hardening"
+        },
+        {
+          "category": "heuristic",
+          "fingerprint": "8516d644d687",
+          "length": 0,
+          "level": "note",
+          "message": "Imports a memory-protection-change API: VirtualProtect (changes page protections; benign in JITs, GC runtimes, plugin loaders)",
+          "offset": null,
+          "rule": "import/memory-protect",
+          "where": "import"
+        }
+      ],
+      "path": "demo.exe"
+    }
+  ],
+  "summary": {
+    "error": 0,
+    "files": 1,
+    "findings": 5,
+    "note": 3,
+    "warning": 2
+  },
+  "tool": "deglyph",
+  "version": "test"
+}
