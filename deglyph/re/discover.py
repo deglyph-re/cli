@@ -27,6 +27,7 @@ recovered starts to confirm in the disassembly, not as proven boundaries.
 
 from __future__ import annotations
 
+import time
 from bisect import bisect_right
 from dataclasses import dataclass
 
@@ -55,16 +56,21 @@ def _enclosing_start(starts: list[int], va: int) -> int | None:
     return starts[i - 1] if i else None
 
 
-def scan_call_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[int]:
+def scan_call_targets(
+    image: Image, *, max_bytes: int = 64 * 1024 * 1024, max_seconds: float | None = None
+) -> list[int]:
     """Direct-`call` targets in code not already named (back-compat shim).
 
     Retained for callers that only want the confirmed call-target set; the TUI
     worker uses `scan_targets` for the richer hit list. Read-only.
     """
-    return [h.va for h in scan_targets(image, max_bytes=max_bytes) if h.confirmed]
+    hits = scan_targets(image, max_bytes=max_bytes, max_seconds=max_seconds)
+    return [h.va for h in hits if h.confirmed]
 
 
-def scan_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[_Hit]:
+def scan_targets(
+    image: Image, *, max_bytes: int = 64 * 1024 * 1024, max_seconds: float | None = None
+) -> list[_Hit]:
     """Recovered starts (call + tail-jmp) not already named, with evidence.
 
     Read-only: it does not mutate the image, so it is safe to run on a worker
@@ -80,10 +86,11 @@ def scan_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[_Hi
 
     The default-bound call is cached on disk by the binary content hash, so
     reopening an unchanged build skips the decode; a non-default `max_bytes`
-    always recomputes.
+    always recomputes. `max_seconds` bounds the decode by wall clock, returning
+    the partial result so far; a budgeted call neither reads nor writes the cache.
     """
     default_args = max_bytes == 64 * 1024 * 1024
-    digest = file_sha256(image.path) if default_args else None
+    digest = file_sha256(image.path) if (default_args and max_seconds is None) else None
     if digest is not None:
         cached = cache_get(digest, "discover")
         if cached is not None:
@@ -108,8 +115,11 @@ def scan_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[_Hi
     decoded: list = []
     calls: dict[int, list[str]] = {}
     scanned = 0
+    t0 = time.perf_counter()
     for s in exec_sections:
         if scanned >= max_bytes:
+            break
+        if max_seconds is not None and time.perf_counter() - t0 > max_seconds:
             break
         span = min(s.size, max_bytes - scanned)
         scanned += span
@@ -205,7 +215,9 @@ def add_discovered(image: Image, targets: list) -> int:
     return added
 
 
-def discover_functions(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> int:
+def discover_functions(
+    image: Image, *, max_bytes: int = 64 * 1024 * 1024, max_seconds: float | None = None
+) -> int:
     """Scan for and register unexported functions in one synchronous pass.
 
     Convenience for headless use and tests; the TUI runs `scan_targets` on a
@@ -213,4 +225,5 @@ def discover_functions(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> in
     """
     if getattr(image, "_discovered", False):
         return 0
-    return add_discovered(image, scan_targets(image, max_bytes=max_bytes))
+    hits = scan_targets(image, max_bytes=max_bytes, max_seconds=max_seconds)
+    return add_discovered(image, hits)
