@@ -1196,6 +1196,25 @@ def test_command_palette_lists_ai_provider(host_binary, tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_cancel_scan_is_safe_and_notifies(host_binary, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    notes: list[str] = []
+
+    async def scenario():
+        app = DeglyphApp(host_binary, welcome=False)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            monkeypatch.setattr(app, "notify", lambda msg, **k: notes.append(msg))
+            # Cancelling the background scans is safe whether or not a worker is
+            # still running, and always surfaces a status toast.
+            app.action_cancel_scan()
+            await pilot.pause()
+            assert app._discovery_running is False
+            assert notes and "cancelled" in notes[-1].lower()
+
+    asyncio.run(scenario())
+
+
 def test_about_dialog_shows_logo(host_binary, tmp_path, monkeypatch):
     monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
 

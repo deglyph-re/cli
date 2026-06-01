@@ -886,6 +886,7 @@ class DeglyphApp(App):
         Binding("k", "cursor_up", "Up", show=False),
         # quit (last, like a macOS app menu)
         Binding("ctrl+c,ctrl+q", "quit", "Quit", priority=True),
+        Binding("ctrl+x", "cancel_scan", "Cancel scan", show=False),
     ]
 
     def __init__(
@@ -1268,6 +1269,18 @@ class DeglyphApp(App):
         node = self._discovery_node
         if node is not None and node.parent is not None:
             node.set_label(self._discovery_label(frame))
+
+    def action_cancel_scan(self) -> None:
+        """Cancel the background discovery / strings scans and clear the spinner.
+
+        The two worker groups walk every executable byte through Capstone, which
+        can run for tens of seconds on a large binary. `cancel_group` is a no-op
+        when nothing is in flight, so this is safe to invoke at any time.
+        """
+        self.workers.cancel_group(self, "discover")
+        self.workers.cancel_group(self, "strings")
+        self._stop_discovery_spinner()
+        self.notify("Background scan cancelled.")
 
     def _stop_discovery_spinner(self) -> None:
         self._discovery_running = False
