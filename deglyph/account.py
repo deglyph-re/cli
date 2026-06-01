@@ -12,7 +12,10 @@ this side is just a token file plus the endpoint URL.
 
 from __future__ import annotations
 
+import logging
 import os
+
+log = logging.getLogger(__name__)
 
 DEFAULT_API_URL = "https://api.deglyph.dev"
 
@@ -39,11 +42,30 @@ def load_token() -> str | None:
         return None
 
 
-def save_token(token: str) -> None:
+def save_token(token: str) -> bool:
+    """Persist the token; best-effort, returns False on failure rather than raise.
+
+    Written atomically (temp file + replace) so a crash mid-write can't truncate
+    an existing token, and with 0o600 perms so it is not world-readable on a
+    shared machine.
+    """
     p = token_path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as fh:
-        fh.write(token.strip())
+    tmp = f"{p}.tmp"
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        # Create the temp file private from the start, not after a window at 0o644.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(token.strip())
+        os.replace(tmp, p)
+        return True
+    except OSError as e:
+        log.warning("could not save token to %s: %s", p, e)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
 
 
 def clear_token() -> bool:

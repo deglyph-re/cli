@@ -39,10 +39,22 @@ log = logging.getLogger(__name__)
 OSV_URL = "https://api.osv.dev/v1/query"
 SOURCE = "osv.dev"
 DEFAULT_TTL = 24 * 60 * 60
+# Cap on a single OSV response body. The timeout bounds inactivity, not total
+# bytes, so a compromised or misconfigured endpoint could stream gigabytes and
+# exhaust memory; 16 MiB is far above any real OSV reply.
+MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
 class CveLookupError(Exception):
     """The CVE database could not be reached or returned an unusable response."""
+
+
+def _read_capped(resp, limit: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read at most `limit` bytes, raising once the cap is exceeded."""
+    data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise CveLookupError(f"response exceeded {limit} bytes")
+    return data
 
 
 def _ttl() -> int:
@@ -123,15 +135,20 @@ def _fetch_osv(purl: str, timeout: float) -> dict:
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
+            raw = _read_capped(resp)
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         log.warning("osv.dev query failed for %s: %s", purl, e)
         raise CveLookupError(str(e)) from e
     try:
-        return json.loads(raw.decode("utf-8") or "{}")
+        doc = json.loads(raw.decode("utf-8") or "{}")
     except json.JSONDecodeError as e:
         log.warning("osv.dev returned non-JSON for %s: %s", purl, e)
         raise CveLookupError("non-JSON response") from e
+    # Validate the shape at the boundary so a hostile / malformed payload is
+    # never written to cache and never crashes a later read with AttributeError.
+    if not isinstance(doc, dict):
+        raise CveLookupError("osv.dev returned a non-object payload")
+    return doc
 
 
 def _query(purl: str, *, timeout: float) -> tuple[list[dict], str]:
@@ -142,15 +159,33 @@ def _query(purl: str, *, timeout: float) -> tuple[list[dict], str]:
     """
     cached = _read_cache(purl)
     if cached is not None:
-        vulns = list((cached.get("payload") or {}).get("vulns") or [])
+        # queried_at may be absent or non-numeric in a hand-edited cache; fall
+        # back rather than KeyError/TypeError out of the (caught) lookup path.
+        qa = cached.get("queried_at")
+        when = _iso(qa) if isinstance(qa, (int, float)) else "unknown time"
         return (
-            vulns,
-            f"{cached.get('source', SOURCE)}, cached {_iso(cached['queried_at'])}",
+            _vulns_of(cached.get("payload")),
+            f"{cached.get('source', SOURCE)}, cached {when}",
         )
     now = time.time()
     payload = _fetch_osv(purl, timeout)
     _write_cache(purl, payload, now)
-    return list(payload.get("vulns") or []), f"{SOURCE}, queried {_iso(now)}"
+    return _vulns_of(payload), f"{SOURCE}, queried {_iso(now)}"
+
+
+def _vulns_of(payload: object) -> list[dict]:
+    """The `vulns` list from an OSV payload, coercing any odd shape to [].
+
+    A cache predating boundary validation, or a hand-corrupted file, can hold a
+    non-dict payload or a non-list `vulns`; both degrade to an empty list rather
+    than raising through the whole CVE pass.
+    """
+    if not isinstance(payload, dict):
+        return []
+    vulns = payload.get("vulns")
+    if not isinstance(vulns, list):
+        return []
+    return [v for v in vulns if isinstance(v, dict)]
 
 
 def query_osv(purl: str, *, timeout: float = 10.0) -> list[dict]:

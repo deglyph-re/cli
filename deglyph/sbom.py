@@ -33,14 +33,6 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _spdx_id(label: str) -> str:
     """Sanitize an arbitrary string into a valid SPDX element id token."""
     out = []
@@ -185,7 +177,10 @@ def build_sbom(
     with open(path, "rb") as fh:
         data = fh.read()
     hits = scan_fingerprint(img, data)
-    digest = _sha256(path)
+    # Hash the bytes already read, not a second read of the path: a mid-scan
+    # modification would otherwise yield a digest that does not match the
+    # fingerprinted bytes, breaking the SBOM's declared provenance.
+    digest = hashlib.sha256(data).hexdigest()
     if fmt_lc == "spdx":
         return sbom_spdx(img, hits, sha256=digest)
     return sbom_cyclonedx(img, hits, sha256=digest)

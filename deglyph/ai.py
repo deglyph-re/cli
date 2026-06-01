@@ -378,6 +378,21 @@ class AssistantError(RuntimeError):
     """A configuration, network, or API failure surfaced to the UI."""
 
 
+# Cap on a single backend response body. A per-request timeout bounds
+# inactivity, not total bytes, so a hostile or misconfigured endpoint (the
+# OpenAI adapter accepts any base URL) could stream an unbounded reply and
+# exhaust memory; 32 MiB is far above any real model response.
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+
+
+def _read_capped(resp, limit: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read at most `limit` bytes from `resp`, raising once the cap is passed."""
+    data = resp.read(limit + 1)
+    if len(data) > limit:
+        raise AssistantError(f"AI response exceeded {limit} bytes")
+    return data
+
+
 def api_key_present() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -1165,7 +1180,7 @@ class HostedBackend:
         try:
             timeout = float(kw.get("timeout") or 120)
             with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
-                return _HostedResponse(json.loads(r.read().decode("utf-8")))
+                return _HostedResponse(json.loads(_read_capped(r).decode("utf-8")))
         except Exception as e:
             raise AssistantError(f"hosted AI request failed: {e}") from e
 
@@ -1314,6 +1329,6 @@ class OpenAIBackend:
         try:
             timeout = float(kw.get("timeout") or 120)
             with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
-                return _from_openai(json.loads(r.read().decode("utf-8")))
+                return _from_openai(json.loads(_read_capped(r).decode("utf-8")))
         except Exception as e:
             raise AssistantError(f"OpenAI-compatible request failed: {e}") from e

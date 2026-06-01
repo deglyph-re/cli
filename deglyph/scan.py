@@ -870,7 +870,10 @@ def load_ignore_file(path: str) -> tuple[set[str], set[str]]:
                     fps.add(line.split(":", 1)[1].strip())
                 else:
                     rules.add(line)
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError covers a UnicodeDecodeError on invalid UTF-8 bytes; a
+        # corrupt ignore file must not abort the whole scan (matches
+        # load_rule_config, and the docstring's "unreadable file yields empty").
         pass
     return rules, fps
 

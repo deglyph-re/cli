@@ -68,10 +68,13 @@ def cache_get(digest: str | None, kind: str) -> Any | None:
     if not digest or not _enabled():
         return None
     p = _entry_path(digest, kind)
+    # A miss is the intended outcome for ANY read failure (the cache can never
+    # break analysis): a corrupt/oversized entry that raises MemoryError or a
+    # surprising decode error degrades to a recompute, not a crash.
     try:
         with open(p, encoding="utf-8") as fh:
             doc = json.load(fh)
-    except (OSError, json.JSONDecodeError):
+    except Exception:
         return None
     if not isinstance(doc, dict) or doc.get("cache_version") != CACHE_VERSION:
         return None

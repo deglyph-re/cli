@@ -17,8 +17,10 @@ class _FakeResp:
     def __init__(self, payload: dict):
         self._body = json.dumps(payload).encode("utf-8")
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, amt: int | None = None) -> bytes:
+        if amt is None:
+            return self._body
+        return self._body[:amt]
 
     def __enter__(self):
         return self

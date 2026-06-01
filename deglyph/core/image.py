@@ -165,14 +165,29 @@ class Image:
         return best
 
     # -- internals ---------------------------------------------------------
-    _raw_cache: dict[str, bytes] = field(default_factory=dict, repr=False)
+    _raw_cache: dict[tuple[str, int, int], bytes] = field(
+        default_factory=dict, repr=False
+    )
 
     def _section_raw(self, s: Section) -> bytes:
-        if s.name not in self._raw_cache:
-            with open(self.path, "rb") as fh:
-                fh.seek(s.raw_off)
-                self._raw_cache[s.name] = fh.read(s.raw_size)
-        return self._raw_cache[s.name]
+        # Key on (name, offset, size), not name alone: a binary can carry two
+        # sections with the same name at different offsets (Mach-O's two
+        # __const, ELF/PE duplicates), and a name-only key would serve the
+        # first section's bytes for every later same-named one.
+        key = (s.name, s.raw_off, s.raw_size)
+        if key not in self._raw_cache:
+            # The single I/O choke point for every whole-image pass; a bad
+            # offset/size or a truncated, deleted, or unreadable file (a corrupt
+            # LIEF offset folds to a negative raw_off, an unmount races a worker)
+            # must degrade to an empty region, not abort the pass.
+            try:
+                with open(self.path, "rb") as fh:
+                    fh.seek(s.raw_off)
+                    self._raw_cache[key] = fh.read(s.raw_size)
+            except OSError as e:
+                log.debug("section %r raw read failed: %s", s.name, e)
+                self._raw_cache[key] = b""
+        return self._raw_cache[key]
 
     def reindex(self) -> None:
         self.funcs.sort(key=lambda f: f.va)

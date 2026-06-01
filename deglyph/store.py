@@ -24,6 +24,10 @@ log = logging.getLogger(__name__)
 # renamed field). Additive fields do not require a bump.
 PROJECT_VERSION = 1
 
+# Skip a sidecar larger than this rather than risk an OOM parsing a corrupt or
+# poisoned file. Chats can grow, but 64 MiB is far beyond any real session.
+_MAX_SIDECAR_BYTES = 64 * 1024 * 1024
+
 
 def _store_dir() -> str:
     return os.environ.get("DEGLYPH_STORE_DIR") or os.path.join(
@@ -155,34 +159,65 @@ def list_sessions() -> list[Annotations]:
     seen: set[str] = set()
     for p in files:
         try:
+            if os.path.getsize(p) > _MAX_SIDECAR_BYTES:
+                continue
             with open(p, encoding="utf-8") as fh:
-                binary = json.load(fh).get("binary")
-        except (OSError, ValueError):
+                doc = json.load(fh)
+        except (OSError, ValueError, MemoryError):
             continue
+        binary = doc.get("binary") if isinstance(doc, dict) else None
         if not binary or binary in seen or not os.path.isfile(binary):
             continue
         seen.add(binary)
-        out.append(load(binary))
+        # Reuse the doc just parsed instead of re-reading the sidecar.
+        out.append(load(binary, doc))
     return out
 
 
-def load(binary_path: str) -> Annotations:
+def load(binary_path: str, doc: dict | None = None) -> Annotations:
     """Load annotations for `binary_path`, or an empty set if none/unreadable.
 
-    Any malformed sidecar -- missing file, bad JSON, or non-hex keys -- yields an
-    empty set rather than raising, so a corrupt file never breaks startup.
+    Any malformed sidecar (missing file, bad JSON, oversized, non-hex keys)
+    yields an empty set rather than raising, so a corrupt file never breaks
+    startup. A single bad key is skipped, not fatal: one typo in a hand-edited
+    sidecar must not discard every other annotation. A caller that already
+    parsed the JSON (list_sessions) can pass it as `doc` to avoid a second read.
     """
     a = Annotations(path=binary_path)
-    try:
-        with open(sidecar_path(binary_path), encoding="utf-8") as fh:
-            d = json.load(fh)
-        a.names = {int(k, 16): v for k, v in d.get("names", {}).items()}
-        a.comments = {int(k, 16): v for k, v in d.get("comments", {}).items()}
-        a.bookmarks = {int(v, 16) for v in d.get("bookmarks", [])}
-        a.chats = {int(k, 16): v for k, v in d.get("chats", {}).items()}
-        a.view = _viewdict(d.get("view", {}))
-    except (FileNotFoundError, ValueError, AttributeError, TypeError, OSError):
-        return Annotations(path=binary_path)
+    if doc is None:
+        try:
+            p = sidecar_path(binary_path)
+            if os.path.getsize(p) > _MAX_SIDECAR_BYTES:
+                log.warning("annotations sidecar too large, ignoring: %s", p)
+                return a
+            with open(p, encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except (OSError, ValueError, MemoryError):
+            return a
+    if not isinstance(doc, dict):
+        return a
+
+    def _hexmap(raw) -> dict:
+        out: dict = {}
+        if isinstance(raw, dict):
+            for k, v in raw.items():
+                try:
+                    out[int(k, 16)] = v
+                except (ValueError, TypeError):
+                    continue
+        return out
+
+    a.names = _hexmap(doc.get("names"))
+    a.comments = _hexmap(doc.get("comments"))
+    a.chats = _hexmap(doc.get("chats"))
+    marks: set[int] = set()
+    for v in doc.get("bookmarks") or []:
+        try:
+            marks.add(int(v, 16))
+        except (ValueError, TypeError):
+            continue
+    a.bookmarks = marks
+    a.view = _viewdict(doc.get("view", {}))
     return a
 
 

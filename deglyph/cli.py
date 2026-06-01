@@ -228,7 +228,9 @@ def _account_cli(cmd: str, argv: list[str]) -> int:
         ap = argparse.ArgumentParser(prog="deglyph login")
         ap.add_argument("token", help="hosted-AI token issued at deglyph.dev")
         args = ap.parse_args(argv)
-        account.save_token(args.token)
+        if not account.save_token(args.token):
+            print("deglyph: could not store the token (see logs).")
+            return 1
         print("deglyph: hosted AI token stored.")
         return 0
 
@@ -617,8 +619,11 @@ def _headless(
         return 1
     if discover:
         discover_functions(img)
+    # The --strings-* flags must reach extract_strings; threading them this far
+    # only to drop them at the call site silently ignored the user's request.
+    str_kw = dict(min_len=strings_min, section=strings_section, raw=strings_all)
     if as_json:
-        return _emit_json(img, do_list, analyze, strings)
+        return _emit_json(img, do_list, analyze, strings, str_kw)
     c.print(
         f"[bold #e8a06a]{path}[/]  {img.fmt}/{img.arch.value} base={img.base:#x} "
         f"· {len(img.funcs)} functions"
@@ -629,7 +634,7 @@ def _headless(
             c.print(f"  [dim]{f.va:#012x}[/] [#6a9fb5]{f.kind:<7}[/] {f.display}{mark}")
     if strings:
         # plain print (no Rich markup) so the dump pipes / greps cleanly
-        for st in extract_strings(img):
+        for st in extract_strings(img, **str_kw):
             print(f"{st.va:#012x}  {st.section:<8} {st.encoding:<5} {st.text}")
     if analyze:
         matches = [f for f in img.funcs if analyze.lower() in f.display.lower()]
@@ -703,7 +708,7 @@ def _analysis_support(arch) -> dict:
     }
 
 
-def _emit_json(img, do_list, analyze, strings=False) -> int:
+def _emit_json(img, do_list, analyze, strings=False, str_kw=None) -> int:
     """Machine-readable --list / --analyze / --strings output for scripting."""
     out: dict = {
         "path": img.path,
@@ -731,7 +736,7 @@ def _emit_json(img, do_list, analyze, strings=False) -> int:
 
         out["strings"] = [
             {"va": s.va, "section": s.section, "encoding": s.encoding, "text": s.text}
-            for s in extract_strings(img)
+            for s in extract_strings(img, **(str_kw or {}))
         ]
     if analyze:
         matches = [f for f in img.funcs if analyze.lower() in f.display.lower()]

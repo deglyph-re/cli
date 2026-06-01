@@ -21,6 +21,7 @@ Public: SCHEMA_VERSION, build_export.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from typing import Any
 
@@ -38,6 +39,8 @@ from .re import (
     referenced_data,
     thunk_chain,
 )
+
+log = logging.getLogger(__name__)
 
 # Bump on any breaking change to the document shape (a removed/renamed field or a
 # changed meaning). Additive fields do not require a bump. Pinned by tests.
@@ -194,7 +197,10 @@ def build_export(
     whole-image regardless. Output is deterministic (sorted by VA).
     """
     funcs = sorted(image.funcs, key=lambda f: (f.va, f.name))
-    capped = funcs if max_funcs is None else funcs[:max_funcs]
+    # Guard against a negative cap: funcs[:-5] would silently keep all-but-the-
+    # last-5 instead of the first 5. Clamp to 0 (an explicit empty selection).
+    cap = None if max_funcs is None else max(0, max_funcs)
+    capped = funcs if cap is None else funcs[:cap]
 
     functions = []
     xrefs = {}
@@ -202,16 +208,22 @@ def build_export(
     cfgs = {}
     for f in capped:
         key = hex(f.va)
-        functions.append(_func(f))
-        xrefs[key] = _xrefs(image, f.va)
-        det = _detectors(image, f.va)
-        refs = _referenced(image, f.va)
-        if refs:
-            det["referenced_data"] = refs
-        if len(det) > 1:
-            detectors[key] = det
-        if include_cfg:
-            cfgs[key] = _cfg(image, f.va)
+        # One malformed function on a hostile binary must skip, not abort the
+        # whole export.
+        try:
+            functions.append(_func(f))
+            xrefs[key] = _xrefs(image, f.va)
+            det = _detectors(image, f.va)
+            refs = _referenced(image, f.va)
+            if refs:
+                det["referenced_data"] = refs
+            if len(det) > 1:
+                detectors[key] = det
+            if include_cfg:
+                cfgs[key] = _cfg(image, f.va)
+        except Exception as e:
+            log.debug("export skipped function %s: %s", key, e)
+            continue
 
     strings = [
         {
@@ -242,7 +254,7 @@ def build_export(
     }
     if include_cfg:
         doc["cfg"] = cfgs
-    if max_funcs is not None and max_funcs < len(funcs):
+    if cap is not None and cap < len(funcs):
         doc["truncated"] = {
             "functions_shown": len(capped),
             "functions_total": len(funcs),

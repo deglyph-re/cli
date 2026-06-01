@@ -645,7 +645,9 @@ def test_xrefs_tool_handles_data_address(code_image):
     # encoding: 48 8d 05 f9 00 00 00 c3
     code = bytes.fromhex("48 8d 05 f9 00 00 00 c3")
     data = b"hello\x00\x00\x00"
-    img._raw_cache = {".text": code, ".rdata": data}
+    # _raw_cache keys on (name, raw_off, raw_size) so same-named sections at
+    # different offsets don't collide; seed it directly to avoid a file read.
+    img._raw_cache = {(".text", 0, 8): code, (".rdata", 8, 8): data}
     img.reindex()
 
     a = ai.Assistant(client=object())

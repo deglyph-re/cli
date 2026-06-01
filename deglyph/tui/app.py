@@ -2706,8 +2706,16 @@ class DeglyphApp(App):
             self._ai_refresh()
 
     def _ai_refresh(self) -> None:
-        self.query_one("#ai-log", Static).update(self._ai_log)
-        self.query_one("#ai-scroll", VerticalScroll).scroll_end(animate=False)
+        # Reached via call_from_thread off the AI worker; the screen may have
+        # been torn down while the request was in flight, so a missing widget is
+        # not an error (same teardown race the discovery tick guards against).
+        if not self.is_running:
+            return
+        try:
+            self.query_one("#ai-log", Static).update(self._ai_log)
+            self.query_one("#ai-scroll", VerticalScroll).scroll_end(animate=False)
+        except Exception:
+            return
 
     def _ai_start_thinking(self) -> None:
         """Show an animated 'thinking' line beneath the transcript while waiting."""
@@ -2717,13 +2725,20 @@ class DeglyphApp(App):
         self._ai_tick()
 
     def _ai_tick(self) -> None:
+        # The interval timer can fire one last time after teardown; the widgets
+        # are gone by then, so a missing node is not an error.
+        if not self.is_running:
+            return
         frame = SPINNER[self._ai_spin % len(SPINNER)]
         self._ai_spin += 1
         # Render the committed transcript plus a transient spinner line.
         pending = self._ai_log.copy()
         pending.append(f"\n{frame} deglyph is thinking…\n", style=GOLD)
-        self.query_one("#ai-log", Static).update(pending)
-        self.query_one("#ai-scroll", VerticalScroll).scroll_end(animate=False)
+        try:
+            self.query_one("#ai-log", Static).update(pending)
+            self.query_one("#ai-scroll", VerticalScroll).scroll_end(animate=False)
+        except Exception:
+            return
 
     def _ai_stop_thinking(self) -> None:
         if self._ai_timer is not None:
@@ -3084,7 +3099,7 @@ class DeglyphApp(App):
             # empty input clears the note
             self._anno.comments.pop(cur.va, None)
         self._anno.save()
-        self._render_info(cur)
+        self._render_func_info(cur)
         self.query_one("#tabs", TabbedContent).active = "tab-info"
 
     def on_tree_node_highlighted(self, ev: Tree.NodeHighlighted) -> None:
@@ -3830,6 +3845,9 @@ class DeglyphApp(App):
 
     async def action_quit(self) -> None:
         self._autosave()
+        # Cancel the AI spinner timer before teardown so a final tick can't fire
+        # against unmounted widgets during shutdown.
+        self._ai_stop_thinking()
         await super().action_quit()
 
 

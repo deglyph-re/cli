@@ -27,6 +27,7 @@ recovered starts to confirm in the disassembly, not as proven boundaries.
 
 from __future__ import annotations
 
+import logging
 import time
 from bisect import bisect_right
 from dataclasses import dataclass
@@ -35,6 +36,8 @@ from ..cache import cache_get, cache_put, file_sha256
 from ..core.disasm import Disassembler
 from ..core.image import Func, Image
 from .unwind import unwind_starts
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -123,14 +126,20 @@ def scan_targets(
             break
         span = min(s.size, max_bytes - scanned)
         scanned += span
-        for ins in dis.at(s.va, span):
-            if ins.addr >= s.va + span:
-                break
-            decoded.append(ins)
-            if ins.is_call():
-                t = ins.imm_target()
-                if t is not None and in_exec(t):
-                    calls.setdefault(t, []).append(f"direct call at {ins.addr:#x}")
+        # One pathological section must not abort the whole-image scan (the
+        # catch-and-continue contract); a Capstone error ends this section only.
+        try:
+            for ins in dis.at(s.va, span):
+                if ins.addr >= s.va + span:
+                    break
+                decoded.append(ins)
+                if ins.is_call():
+                    t = ins.imm_target()
+                    if t is not None and in_exec(t):
+                        calls.setdefault(t, []).append(f"direct call at {ins.addr:#x}")
+        except Exception as e:
+            log.debug("discovery skipped section %r: %s", s.name, e)
+            continue
 
     # Function-start anchors: unwind starts and call targets plus every name the
     # container already gave us. A tail jmp counts as a new start only when it
