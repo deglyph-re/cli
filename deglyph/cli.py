@@ -154,6 +154,10 @@ def main(argv: list[str] | None = None) -> int:
         return _scan_cli(argv[1:])
     if argv and argv[0] == "sbom":
         return _sbom_cli(argv[1:])
+    if argv and argv[0] == "export":
+        return _export_cli(argv[1:])
+    if argv and argv[0] == "project":
+        return _project_cli(argv[1:])
     if argv and argv[0] in ("login", "logout"):
         return _account_cli(argv[0], argv[1:])
 
@@ -467,6 +471,112 @@ def _sbom_cli(argv: list[str]) -> int:
             fh.write(text)
     else:
         print(text)
+    return 0
+
+
+def _export_cli(argv: list[str]) -> int:
+    """`deglyph export` - a versioned JSON analysis document for other tools."""
+    from . import export as exportmod
+
+    ap = argparse.ArgumentParser(
+        prog="deglyph export",
+        description="Emit a versioned JSON analysis document for a native binary.",
+    )
+    ap.add_argument("path", help="binary to inspect")
+    ap.add_argument("--fmt", help="force container format (PE/ELF/MachO)")
+    ap.add_argument("--arch", help="force architecture (x86/x64/arm/arm64)")
+    ap.add_argument(
+        "--cfg",
+        action="store_true",
+        help="include per-function control-flow blocks (slower, larger)",
+    )
+    ap.add_argument(
+        "--max-funcs",
+        type=int,
+        metavar="N",
+        help="cap the per-function sections to the first N functions",
+    )
+    ap.add_argument("--output", "-o", help="write to this file (default: stdout)")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--debug", action="store_true")
+    args = ap.parse_args(argv)
+    _setup_logging(verbose=args.verbose, debug=args.debug)
+
+    try:
+        doc = exportmod.export_file(
+            _resolve_binary(args.path),
+            fmt=args.fmt,
+            arch=_arch(args.arch),
+            include_cfg=args.cfg,
+            max_funcs=args.max_funcs,
+        )
+    except Exception as e:
+        print(f"deglyph export: {e}", file=sys.stderr)
+        return 1
+    text = json.dumps(doc, indent=2)
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    else:
+        print(text)
+    return 0
+
+
+def _project_cli(argv: list[str]) -> int:
+    """`deglyph project export|import` - move annotations between machines.
+
+    A sidecar is keyed by the binary's absolute path, so it does not follow the
+    binary to another machine. The portable file is path-independent: it carries
+    only the renames, notes, bookmarks, and saved view, reattached to whatever
+    binary the import targets.
+    """
+    from . import store
+
+    ap = argparse.ArgumentParser(
+        prog="deglyph project",
+        description="Export or import a binary's annotations as a portable file.",
+    )
+    ap.add_argument("action", choices=("export", "import"))
+    ap.add_argument("binary", help="the binary the annotations belong to")
+    ap.add_argument(
+        "--file",
+        "-f",
+        required=True,
+        help="portable project file to write (export) or read (import)",
+    )
+    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--debug", action="store_true")
+    args = ap.parse_args(argv)
+    _setup_logging(verbose=args.verbose, debug=args.debug)
+
+    if args.action == "export":
+        anno = store.load(args.binary)
+        if anno.is_empty():
+            print(
+                "deglyph project: nothing to export (no annotations)", file=sys.stderr
+            )
+            return 1
+        try:
+            with open(args.file, "w", encoding="utf-8") as fh:
+                json.dump(anno.to_portable(), fh, indent=2)
+        except OSError as e:
+            print(f"deglyph project: {e}", file=sys.stderr)
+            return 1
+        print(f"wrote {args.file}")
+        return 0
+
+    try:
+        with open(args.file, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as e:
+        print(f"deglyph project: {e}", file=sys.stderr)
+        return 1
+    anno = store.Annotations.from_portable(args.binary, data)
+    anno.save()
+    print(
+        f"imported {len(anno.names)} rename(s), {len(anno.comments)} note(s), "
+        f"{len(anno.bookmarks)} bookmark(s) for {os.path.basename(args.binary)}"
+    )
     return 0
 
 

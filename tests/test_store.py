@@ -140,3 +140,32 @@ def test_view_state_non_dict_is_dropped(tmp_path, monkeypatch):
     with open(p, "w", encoding="utf-8") as fh:
         json.dump({"binary": "/v3.bin", "view": "not-a-dict"}, fh)
     assert load("/v3.bin").view == {}
+
+
+def test_portable_roundtrip_is_path_independent():
+    a = Annotations(path="/a/bin")
+    a.names[0x1000] = "parse_header"
+    a.comments[0x10] = "validates magic"
+    a.bookmarks.add(0x20)
+    a.view = {"tab": "tab-info", "filter": "enc"}
+    p = a.to_portable()
+    # the portable form carries no binary path and is versioned
+    assert "binary" not in p
+    assert p["deglyph_project_version"] == 1
+
+    b = Annotations.from_portable("/other/machine/bin", p)
+    assert b.path == "/other/machine/bin"
+    assert b.names == {0x1000: "parse_header"}
+    assert b.comments == {0x10: "validates magic"}
+    assert b.bookmarks == {0x20}
+    assert b.view == {"tab": "tab-info", "filter": "enc"}
+    # chats are deliberately not exported
+    assert b.chats == {}
+
+
+def test_from_portable_tolerates_junk():
+    a = Annotations.from_portable("/x/y.bin", {"names": {"zzz": "v", "0x40": "ok"}})
+    # an unparseable hex key is dropped, a valid one kept
+    assert a.names == {0x40: "ok"}
+    # a non-dict payload yields empty annotations, not an error
+    assert Annotations.from_portable("/x/y.bin", "garbage").is_empty()

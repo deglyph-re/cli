@@ -443,3 +443,23 @@ def test_baseline_identity_ignores_sub_va_churn():
     assert ida.startswith("shape:") and ida == scan._func_identity(b, 0x1000)
     fn_diffs = [f for f in scan.diff_baseline(a, b) if "function" in f.rule]
     assert not fn_diffs
+
+
+def test_sarif_only_emits_scan_finding_rules():
+    # SARIF stays focused on actionable security findings: every rule and result
+    # id comes from the scanner's RULES, never an analysis hint.
+    results = [
+        (
+            "bin",
+            [
+                Finding("secret/aws-access-key", "error", "x", "0x10"),
+                Finding("harden/no-pie", "warning", "y", "hardening"),
+                Finding("cve/known", "error", "z", "cve"),
+            ],
+        )
+    ]
+    doc = scan.to_sarif(results, version="9.9")
+    rule_ids = {r["id"] for r in doc["runs"][0]["tool"]["driver"]["rules"]}
+    result_ids = {r["ruleId"] for r in doc["runs"][0]["results"]}
+    assert rule_ids <= set(scan.RULES)
+    assert result_ids <= set(scan.RULES)

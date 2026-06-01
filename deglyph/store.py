@@ -16,8 +16,13 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import Any
 
 log = logging.getLogger(__name__)
+
+# Bump on a breaking change to the portable project document shape (a removed or
+# renamed field). Additive fields do not require a bump.
+PROJECT_VERSION = 1
 
 
 def _store_dir() -> str:
@@ -62,6 +67,56 @@ class Annotations:
             "chats": {hex(k): v for k, v in sorted(self.chats.items())},
             "view": self.view,
         }
+
+    def to_portable(self) -> dict:
+        """A path-independent annotation document for moving work between machines.
+
+        Unlike `to_dict`, this carries no binary path: the sidecar is keyed by the
+        binary's absolute path and does not follow the file elsewhere, so the
+        portable form holds only the edits (renames, notes, bookmarks, saved view)
+        to reattach to whatever binary the import targets. Chats are deliberately
+        omitted: they can be large and may carry private conversation.
+        """
+        return {
+            "deglyph_project_version": PROJECT_VERSION,
+            "names": {hex(k): v for k, v in sorted(self.names.items())},
+            "comments": {hex(k): v for k, v in sorted(self.comments.items())},
+            "bookmarks": [hex(v) for v in sorted(self.bookmarks)],
+            "view": self.view,
+        }
+
+    @staticmethod
+    def from_portable(binary_path: str, data: dict) -> "Annotations":
+        """Build annotations for `binary_path` from a portable project document.
+
+        Malformed entries (a non-hex key, a wrong-typed field) are dropped rather
+        than raised, so a hand-edited or partial file never breaks the import.
+        """
+        a = Annotations(path=binary_path)
+        if not isinstance(data, dict):
+            return a
+
+        def _hexmap(raw) -> dict[int, Any]:
+            out: dict[int, Any] = {}
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    try:
+                        out[int(k, 16)] = v
+                    except (ValueError, TypeError):
+                        continue
+            return out
+
+        a.names = _hexmap(data.get("names"))
+        a.comments = _hexmap(data.get("comments"))
+        marks: set[int] = set()
+        for v in data.get("bookmarks") or []:
+            try:
+                marks.add(int(v, 16))
+            except (ValueError, TypeError):
+                continue
+        a.bookmarks = marks
+        a.view = _viewdict(data.get("view", {}))
+        return a
 
     def save(self) -> None:
         """Write the sidecar; failures are logged, not raised (best-effort)."""
