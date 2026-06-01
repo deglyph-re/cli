@@ -179,6 +179,9 @@ def build_sbom(
             f"unknown SBOM format: {fmt!r} (expected 'cyclonedx' or 'spdx')"
         )
     img = load_image(path, fmt=force_fmt, arch=arch)
+    # Whole-file read on purpose: the fingerprint scan and the component hash
+    # must see every byte (overlay, signature, debug blob), not only mapped
+    # sections, so reading the raw file is correct here, not a missed section scope.
     with open(path, "rb") as fh:
         data = fh.read()
     hits = scan_fingerprint(img, data)
