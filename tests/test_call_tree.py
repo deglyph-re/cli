@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from deglyph import cache
-from deglyph.re import call_tree, callers_of, data_xrefs_to
+from deglyph.re import call_tree, callers_of
 
 
 def test_callee_tree_follows_direct_calls(code_image):
