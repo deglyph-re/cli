@@ -87,7 +87,10 @@ def scan_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[_Hi
     if digest is not None:
         cached = cache_get(digest, "discover")
         if cached is not None:
-            return [_Hit(va=va, confirmed=conf, evidence=list(ev)) for va, conf, ev in cached]
+            return [
+                _Hit(va=va, confirmed=conf, evidence=list(ev))
+                for va, conf, ev in cached
+            ]
     dis = Disassembler(image)
     exec_sections = _executable(image)
 
