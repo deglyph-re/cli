@@ -30,6 +30,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 
+from ..cache import cache_get, cache_put, file_sha256
 from ..core.disasm import Disassembler
 from ..core.image import Func, Image
 from .unwind import unwind_starts
@@ -76,7 +77,17 @@ def scan_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[_Hi
     second pass to tell an intra-function `jmp` from a tail call that leaves the
     function. A `jmp` whose target sits inside the same function it came from is
     a branch, not a start, and is dropped.
+
+    The default-bound call is cached on disk by the binary content hash, so
+    reopening an unchanged build skips the decode; a non-default `max_bytes`
+    always recomputes.
     """
+    default_args = max_bytes == 64 * 1024 * 1024
+    digest = file_sha256(image.path) if default_args else None
+    if digest is not None:
+        cached = cache_get(digest, "discover")
+        if cached is not None:
+            return [_Hit(va=va, confirmed=conf, evidence=list(ev)) for va, conf, ev in cached]
     dis = Disassembler(image)
     exec_sections = _executable(image)
 
@@ -152,7 +163,10 @@ def scan_targets(image: Image, *, max_bytes: int = 64 * 1024 * 1024) -> list[_Hi
         if va in hits or image.func_at(va) is not None:
             continue
         hits[va] = _Hit(va=va, confirmed=False, evidence=ev[:4])
-    return [hits[va] for va in sorted(hits)]
+    result = [hits[va] for va in sorted(hits)]
+    if digest is not None:
+        cache_put(digest, "discover", [[h.va, h.confirmed, h.evidence] for h in result])
+    return result
 
 
 def add_discovered(image: Image, targets: list) -> int:

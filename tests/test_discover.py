@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from deglyph import cache
 from deglyph.core.image import Func
 from deglyph.re import discover_functions
 from deglyph.re.discover import scan_targets
@@ -91,3 +92,20 @@ def test_intra_function_branch_is_not_a_start(code_image):
     assert 0x100B in vas
     assert 0x100C not in vas
     assert 0x1007 not in vas
+
+
+def test_scan_targets_is_cached_by_file_hash(code_image, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEGLYPH_STORE_DIR", str(tmp_path))
+    img = code_image(CALLER)
+    digest = cache.file_sha256(img.path)
+    assert cache.cache_get(digest, "discover") is None
+    first = scan_targets(img)
+    assert any(h.va == 0x100A for h in first)
+    # the .text scan is now persisted under the file's content hash
+    assert cache.cache_get(digest, "discover") is not None
+    # a fresh image with identical bytes is served from disk, identically
+    img2 = code_image(CALLER)
+    second = scan_targets(img2)
+    assert [(h.va, h.confirmed, h.evidence) for h in second] == [
+        (h.va, h.confirmed, h.evidence) for h in first
+    ]
