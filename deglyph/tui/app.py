@@ -3113,6 +3113,10 @@ class DeglyphApp(App):
     def on_tabbed_content_tab_activated(self, ev: TabbedContent.TabActivated) -> None:
         # Populate the newly-active tab for the current item, so switching tabs
         # by click or arrow shows data without re-selecting the item.
+        # A TabActivated can arrive while the app is tearing down, after the
+        # function tree is unmounted; _current_item's query then raises NoMatches.
+        if not self.is_running:
+            return
         item = self._current_item()
         if item is not None:
             self._refresh_active_tab(item)
