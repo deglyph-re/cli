@@ -84,7 +84,7 @@ deglyph/
              style.tcss  theme (theme variables, not hardcoded hex)
   cli.py     argparse entry point; TUI launch, headless --list/--analyze, `scan`, `sbom`, `login`/`logout`
   __main__.py            enables `python -m deglyph`
-tests/       test_deglyph.py + per-feature tests (detectors, robustness, cli, render, call_tree, pseudo, ai, tui, store, search, discover, scan, account)
+tests/       test_deglyph.py + per-feature tests (detectors, robustness, cli, render, call_tree, pseudo, ai, tui, store, search, discover, scan, account); test_properties.py (address-model invariants, no generative dep) + test_golden.py vs tests/golden/*.json snapshots (scan JSON / SARIF / export skeleton over demo.exe; regen with DEGLYPH_REGEN_GOLDEN=1)
 samples/     demo.c + demo.exe: domain-neutral toy binary committed as a CI fixture (planted secret, crc16, opcode)
              fixture_src.c + build_fixtures.sh: stripped PE/ELF/Mach-O/fat function-recovery fixtures, built (not committed), skipif-absent
 doc/help/    the manual: help.json index + categorized Markdown entries (rendered by the website's docs.html)
