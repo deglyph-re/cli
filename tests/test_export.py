@@ -10,7 +10,7 @@ import os
 import pytest
 
 from deglyph import export
-from deglyph.core.image import Arch, Func, Image, Section
+from deglyph.core.image import Func
 
 SAMPLE = os.path.join(os.path.dirname(__file__), "..", "samples", "demo.exe")
 
@@ -55,17 +55,19 @@ def test_build_export_function_and_detector_shape(code_image):
     assert "0x1000" in doc["xrefs"]
 
 
-def test_build_export_max_funcs_marks_truncation():
-    img = Image(path="x", fmt="ELF", arch=Arch.X64, base=0)
-    img.sections.append(
-        Section(name=".text", va=0x1000, size=0x100, raw_off=0, raw_size=0, flags="RX")
-    )
+def test_build_export_max_funcs_marks_truncation(code_image):
+    # A real backing file is needed (build_export reads section bytes for
+    # strings); the synthetic fixture writes one and seeds func "f" at 0x1000.
+    img = code_image(bytes.fromhex("90 c3"))
     for i in range(5):
-        img.funcs.append(Func(name=f"f{i}", va=0x1000 + i * 0x10, kind="symbol"))
+        img.funcs.append(Func(name=f"f{i}", va=0x1100 + i * 0x10, kind="symbol"))
     img.reindex()
     doc = export.build_export(img, max_funcs=2)
     assert len(doc["functions"]) == 2
-    assert doc["truncated"] == {"functions_shown": 2, "functions_total": 5}
+    assert doc["truncated"] == {
+        "functions_shown": 2,
+        "functions_total": len(img.funcs),
+    }
 
 
 @pytest.mark.skipif(not os.path.isfile(SAMPLE), reason="demo.exe not built")
