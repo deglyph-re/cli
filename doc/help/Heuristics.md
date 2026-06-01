@@ -45,6 +45,7 @@ show you exactly where to verify them.
 
 ## See also
 
+- [Limitations](Limitations.md): the binary classes deglyph does not handle.
 - [Pattern Detectors](Pattern-Detectors.md): what the detectors do and miss.
 - [Scanning Binaries](Scanning.md): the scanner's findings as candidates.
 - [The AI Assistant](AI-Assistant.md): prose explanations, same contract.

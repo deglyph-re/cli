@@ -420,14 +420,34 @@ def _collect_funcs(b: Any, img: Image, base: int) -> None:
         pass
 
     # Generic symbols (named functions in ELF/Mach-O symtabs, and PE COFF symbol
-    # tables from mingw/debug builds).
+    # tables from mingw/debug builds). Two classes of non-function symbol flood
+    # this table on a real binary and are filtered out:
+    #
+    #   - Section-definition symbols carry the section's own name (.text,
+    #     .idata$6, .debug_line, ...) at the section start. LIEF surfaces one per
+    #     section; a real function is never literally named ".text".
+    #   - Data symbols (IAT slots in .idata, mingw .refptr stubs in .rdata, .bss
+    #     and .data variables) are addresses, not code.
+    #
+    # Both are excluded by requiring a symbol's address to land in an executable
+    # section. On a mingw PE this is most of the table (797 of 994 on demo.exe
+    # are section or data symbols). The exec test is positive-only: a section
+    # whose flags could not be determined ("?") is kept, so an ELF/Mach-O symbol
+    # in an oddly-flagged code section is never dropped on uncertainty.
+    section_names = {s.name for s in img.sections}
     try:
         for sym in getattr(b, "symbols", []):
             name = getattr(sym, "name", "") or ""
-            if not name:
+            if not name or name.rstrip("\x00") in section_names:
                 continue
             sva = _symbol_va(sym, img)
-            if sva is None or sva in seen or not img.section_at(sva):
+            if sva is None or sva in seen:
+                continue
+            sec = img.section_at(sva)
+            if sec is None:
+                continue
+            # Executable, or flags unknown ("?"): keep. Positively non-exec: drop.
+            if "X" not in sec.flags.upper() and sec.flags != "?":
                 continue
             img.funcs.append(
                 Func(name=name, va=sva, kind="symbol", demangled=_demangle(name))

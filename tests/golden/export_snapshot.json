@@ -7,11 +7,11 @@
     "sha256": "X"
   },
   "counts": {
-    "detectors": 319,
+    "detectors": 137,
     "findings": 5,
-    "functions": 572,
+    "functions": 197,
     "strings": 586,
-    "xrefs": 572
+    "xrefs": 197
   },
   "deglyph_export_version": 1,
   "tool_name": "deglyph",

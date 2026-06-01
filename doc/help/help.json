@@ -33,6 +33,7 @@
   { "id": "rules-catalog", "title": "Scan Rules Catalog", "section": "Reference", "file": "Rules-Catalog.md" },
   { "id": "how-it-works", "title": "How deglyph Works", "section": "Architecture", "file": "How-It-Works.md" },
   { "id": "heuristics", "title": "Heuristics, Not Proofs", "section": "Architecture", "file": "Heuristics.md" },
+  { "id": "limitations", "title": "Limitations", "section": "Architecture", "file": "Limitations.md" },
   { "id": "about", "title": "About deglyph", "section": "About", "file": "About.md" },
   { "id": "faq", "title": "FAQ", "section": "About", "file": "FAQ.md" },
   { "id": "troubleshooting", "title": "Troubleshooting", "section": "About", "file": "Troubleshooting.md" }

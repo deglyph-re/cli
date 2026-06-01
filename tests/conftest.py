@@ -12,6 +12,16 @@ from __future__ import annotations
 
 import os
 import platform
+import sys
+
+# Import the checkout, not a globally installed `deglyph`. Without an editable
+# install, bare `pytest` would otherwise resolve `import deglyph` to whatever is
+# on site-packages and silently test the wrong code. Prepending the repo root
+# (the parent of tests/) before any deglyph import makes the checkout win. This
+# runs first because pytest loads conftest before the test modules.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import pytest
 

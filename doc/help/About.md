@@ -17,6 +17,10 @@ shipping, identifying linked libraries and their known vulnerabilities, and
 checking hardening posture in continuous integration. Nothing in the tool is
 specific to any one protocol or vendor.
 
+It is built for triage and reading, not full reverse engineering: it is not a
+decompiler and not a replacement for Ghidra, IDA, or Binary Ninja. See
+[Limitations](Limitations.md) for what it does not handle.
+
 ## The stack
 
 - **LIEF** parses PE, ELF, and Mach-O containers.
@@ -39,4 +43,5 @@ later (GPL-3.0-or-later). Author: Alex Spataru.
 
 - [Getting Started](Getting-Started.md): install and first steps.
 - [How deglyph Works](How-It-Works.md): the analysis pipeline.
+- [Limitations](Limitations.md): what deglyph does not handle.
 - [FAQ](FAQ.md): common questions.

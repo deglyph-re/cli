@@ -1,4 +1,4 @@
-# deglyph - Make sense of any binary
+# deglyph - Understand native binaries
 
 [![PyPI version](https://img.shields.io/pypi/v/deglyph)](https://pypi.org/project/deglyph/)
 [![Python versions](https://img.shields.io/pypi/pyversions/deglyph)](https://pypi.org/project/deglyph/)
@@ -10,6 +10,14 @@ call graphs, read a heuristic pseudo-C view, and run pattern detectors that reco
 structure facts (constants, call arguments, CRC loops) without a decompiler. Branch
 and call targets are clickable, renames and notes persist between sessions, and an
 optional AI assistant can explain a selected function.
+
+deglyph is built for triage, exploration, and CI review, not for full reverse
+engineering. It is not a decompiler and not a replacement for Ghidra, IDA, or
+Binary Ninja. Its analysis is static and heuristic, so it has real blind spots:
+indirect and virtual calls, jump tables, obfuscated or packed code, heavily
+optimized stripped C++, unusual ABIs, and anything that only appears at runtime.
+See [Limitations](doc/help/Limitations.md) for the full list and
+[Heuristics, Not Proofs](doc/help/Heuristics.md) for how to read the output.
 
 ![deglyph displaying a function explanation using AI](https://raw.githubusercontent.com/deglyph-re/cli/main/doc/screenshot.png)
 
@@ -292,7 +300,7 @@ jobs:
       # - run: make release
 
       - name: Scan with deglyph
-        uses: deglyph-re/cli@v1.2.0
+        uses: deglyph-re/cli@v1.3.0
         with:
           path: build/app   # file or directory
           sarif: deglyph.sarif
@@ -387,9 +395,14 @@ there is no closed-source fork.
 ## Tests
 
 ```bash
-pip install pytest
+pip install -e ".[dev]"
 pytest
 ```
+
+The editable install puts this checkout on the path with its test and lint
+tools; `pytest` then runs against the source tree. The suite also resolves the
+checkout when run without the install, so a globally installed `deglyph` does
+not shadow it.
 
 The suite covers the pure analysis logic and loads a binary present on the host
 to exercise the loader and disassembler. Cases that check specific vendor
