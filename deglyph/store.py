@@ -86,7 +86,7 @@ class Annotations:
         }
 
     @staticmethod
-    def from_portable(binary_path: str, data: dict) -> "Annotations":
+    def from_portable(binary_path: str, data: dict) -> Annotations:
         """Build annotations for `binary_path` from a portable project document.
 
         Malformed entries (a non-hex key, a wrong-typed field) are dropped rather
