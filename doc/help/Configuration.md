@@ -10,6 +10,7 @@ behavior for scripted and headless use.
 | --- | --- |
 | `~/.deglyph/config.json` | Global preferences: theme, AI provider / model / base URL |
 | `~/.deglyph/annotations/` | Per-binary [renames, notes, bookmarks, chats](Annotations.md) |
+| `~/.deglyph/analysis-cache/` | Cached whole-image passes, keyed by file SHA-256 |
 | `~/.deglyph/cve-cache/` | Cached [osv.dev](CVE-Scanning.md) responses (24h TTL) |
 
 Set `DEGLYPH_STORE_DIR` to relocate all of this, for example to keep a project's
@@ -43,7 +44,8 @@ See [AI Providers](AI-Providers.md) for how these combine.
 | Variable | Effect |
 | --- | --- |
 | `DEGLYPH_CVE_TTL` | [CVE cache](CVE-Scanning.md) lifetime in seconds (default 86400) |
-| `DEGLYPH_STORE_DIR` | Also relocates the CVE cache |
+| `DEGLYPH_NO_CACHE` | Disable the on-disk analysis cache (recompute every run) |
+| `DEGLYPH_STORE_DIR` | Also relocates the analysis and CVE caches |
 
 ## Precedence
 

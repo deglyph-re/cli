@@ -36,13 +36,12 @@ Built on [LIEF](https://lief.re) for container parsing,
 architecture are detected from the file; `--fmt` and `--arch` override the
 detection when a file is mislabeled or you want to read one slice a different way.
 
-**Find a function.** The table lists exports, symbols, imports, the entrypoint,
+**Find a function.** The tree lists exports, symbols, imports, the entrypoint,
 and, for stripped binaries that export nothing, functions recovered by scanning
 `.text` for `call` targets, named `sub_<address>`. (A release `notepad.exe` has no
 exports; discovery turns its lone entrypoint into hundreds of navigable functions.)
-Type to filter with a subsequence match (`encfr` finds `encode_frame`), or press
-`t` to cycle a kind filter. The `code` filter hides the import thunks so only the
-binary's own functions remain.
+Functions are grouped into expandable folders by kind and name prefix, and you
+type to filter with a subsequence match (`encfr` finds `encode_frame`).
 
 **Read disassembly.** Branch and call targets are resolved against the symbol
 table and shown by name. Targets inside the image are clickable: click one to
@@ -78,17 +77,18 @@ following calls rather than scrolling the table.
 These are heuristics that point you at the right instructions. The disassembly
 view is always one key away to confirm what a detector found.
 
-The detectors and the immediate search inspect x86 / x86-64 operands. On ARM and
-AArch64 targets deglyph still loads the file, lists functions, resolves wrappers,
-and disassembles, but these three detectors report nothing until an operand walk
-for that architecture is added.
+The detectors run over an architecture-neutral operand walk, so they inspect
+x86, x86-64, and AArch64 (arm64) targets. The pseudo-C view is still x86-only.
+On 32-bit ARM, deglyph loads the file, lists functions, resolves wrappers, and
+disassembles, but the detectors report nothing until that operand walk is added.
 
 **Extract the data.** Press `s` for a browsable list of every string in the
-binary (ASCII and UTF-16, with address and section): a built-in `strings(1)`.
-The analysis view also lists the **data a function references**: the strings,
-lookup tables, and pointer constants it reads, each decoded as text or a short
-hex preview. Pull the same string list headless with `deglyph BINARY --strings`
-(add `--json` to pipe it).
+binary (ASCII, UTF-8, and UTF-16LE, with address and section): a built-in
+`strings(1)`. The analysis view also lists the **data a function references**:
+the strings, lookup tables, and pointer constants it reads, each decoded as text
+or a short hex preview. Pull the same string list headless with
+`deglyph BINARY --strings` (add `--json` to pipe it); `--strings-min`,
+`--strings-section`, and `--strings-all` tune the dump.
 
 **Search the image.** Byte patterns with `??` wildcards, ASCII and UTF-16
 strings, and immediate constants referenced anywhere in executable code (useful
@@ -116,9 +116,32 @@ See [Set up the AI assistant](#set-up-the-ai-assistant) for the steps.
 embedded **secrets** (private keys, cloud/provider tokens, and credential-labeled
 strings), **risky imports** (process execution, code injection, dynamic loading,
 network, anti-debug), and **build drift** against a `--baseline` (functions and
-imports that appeared or vanished). Output is human text or `--sarif` for GitHub
-code scanning, and findings set a non-zero exit (`--fail-on` chooses the gate).
+imports that appeared or vanished). It also checks the binary's **hardening
+posture** (ASLR/DEP/CFG, PIE/RELRO, stack canaries, fortified calls),
+**fingerprints linked libraries** (zlib,
+OpenSSL, SQLite, and more), and can look those up on **osv.dev for known CVEs**
+(`--cve`). Output is human text, `--format markdown` for a PR comment,
+`--format html` for a one-file dashboard, `--format sarif` for GitHub code
+scanning, `--format json` for tooling, or `--format badge` for a live shields.io
+badge; findings set a non-zero exit (`--fail-on` chooses the gate). Rule levels
+and suppressions are configurable via `.deglyphrules` and `.deglyphignore`.
 See [GitHub Actions](#github-actions) below for the ready-to-copy workflow.
+
+**Produce an SBOM (`deglyph sbom`).** Emit a CycloneDX 1.5 or SPDX 2.3 bill of
+materials built from the fingerprinted libraries, with the scanned binary as the
+root component and a package URL per detected library:
+
+```bash
+deglyph sbom path/to/app --format cyclonedx   # or spdx
+```
+
+**Export the analysis (`deglyph export`).** A versioned, deterministic JSON
+document of the whole analysis (functions with confidence/evidence, cross-
+references, detector hits, strings, scan findings, optionally per-function
+control-flow blocks) for feeding another tool or a diff. **Move your work
+between machines (`deglyph project export/import`)** writes your renames, notes,
+bookmarks, and saved view to a path-independent file you can reattach to the
+binary elsewhere.
 
 **Annotate and keep it.** Rename a function (`n`), add a note (`;`), or bookmark
 it (`b`). Annotations are keyed by address and saved to a per-user sidecar
@@ -213,23 +236,30 @@ deglyph BINARY                  # open the interface (format and arch auto-detec
 deglyph notepad.exe             # a bare name is resolved on PATH (and System32 on Windows)
 deglyph BINARY --arch arm64     # force the architecture
 deglyph BINARY --fmt PE         # force the container format
+deglyph BINARY --slice N        # pick a slice of a fat (universal) Mach-O by index
 deglyph BINARY --list           # print the function table and exit
 deglyph BINARY --analyze NAME   # print constant and CRC analysis for matching functions
-deglyph BINARY --strings        # dump extracted strings (ASCII / UTF-16); add --json
+deglyph BINARY --strings        # dump extracted strings (ASCII / UTF-8 / UTF-16LE); add --json
 deglyph BINARY --list --json    # machine-readable output for scripts and build diffs
 deglyph BINARY --no-discover    # skip sub_* discovery of unexported functions
 deglyph BINARY --ascii          # ASCII glyphs for limited terminals
 deglyph BINARY --nerd           # Font Awesome icons (needs a Nerd Font terminal)
-deglyph scan PATH               # CI scan: secrets, risky imports, build drift
-deglyph scan PATH --sarif       # emit a SARIF 2.1.0 report for code scanning
+deglyph scan PATH               # CI scan: hardening, secrets, libs, CVEs, imports, drift
+deglyph scan PATH --format sarif  # emit a SARIF 2.1.0 report for code scanning
 deglyph scan PATH --baseline OLD  # also report what changed since a prior build
+deglyph sbom PATH               # CycloneDX (or --format spdx) bill of materials
+deglyph export PATH             # versioned JSON analysis document (--cfg, --max-funcs)
+deglyph project export BINARY -f work.json   # portable renames / notes / bookmarks
+deglyph project import BINARY -f work.json   # reattach them on another machine
+deglyph login TOKEN             # store a hosted-AI (Pro) token; logout clears it
 deglyph --version
 ```
 
-`--list` and `--analyze` are headless: they print to the terminal and exit,
-which is what to use in scripts or to diff two builds of the same library; add
-`--json` for structured output. `deglyph scan` takes a file or a directory and
-exits non-zero when it finds anything at or above `--fail-on` (default `warning`).
+`--list`, `--analyze`, `--strings`, `export`, and `sbom` are headless: they print
+to the terminal (or `--output FILE`) and exit, which is what to use in scripts or
+to diff two builds of the same library; add `--json` to `--list`/`--analyze` for
+structured output. `deglyph scan` takes a file or a directory and exits non-zero
+when it finds anything at or above `--fail-on` (default `warning`).
 
 ## GitHub Actions
 
@@ -262,7 +292,7 @@ jobs:
       # - run: make release
 
       - name: Scan with deglyph
-        uses: deglyph-re/cli@v1.1.0
+        uses: deglyph-re/cli@v1.2.0
         with:
           path: build/app   # file or directory
           sarif: deglyph.sarif
@@ -300,9 +330,8 @@ For a live badge that tracks your latest scan, `deglyph scan --format badge` wri
 | Key | Action |
 |-----|--------|
 | `/` | Focus the filter (subsequence match) |
-| `t` | Cycle the kind filter (all / code / export / sub / import) |
 | `esc` | Clear the filter |
-| `j` / `k` / arrows | Move in the function table |
+| `j` / `k` / arrows | Move in the function tree |
 | `d` | Disassembly tab (branch/call targets are clickable) |
 | `x` | Cross-references: wrapper chain, plus recursive caller and callee trees |
 | `a` | Analysis: immediate stores, call arguments, CRC loops, constants |
@@ -310,14 +339,19 @@ For a live badge that tracks your latest scan, `deglyph scan --format badge` wri
 | `c` | Call graph: clickable node navigator centered on the selection |
 | `i` | Assistant: ask Claude about the selected function |
 | `s` | Strings: browse every string in the binary |
+| `t` | Data: the whole-file content map and referenced-data view |
+| `v` | Compare the current build against a second binary |
 | `n` | Rename the selected function (persists) |
 | `b` | Toggle a bookmark on the selection (persists) |
 | `;` | Add a note to the selection (persists) |
+| `y` | Copy the active pane's text |
 | `f` | Follow the selection to its implementation |
 | `g` | Go to an address |
+| `e` | Export an analysis report for the binary |
 | `[` / `]` | Navigate jump history back / forward |
-| `ctrl-p` | Command palette (theme switcher, etc.) |
-| `q` / `ctrl-c` | Quit |
+| `f1` / `?` | About and the key map |
+| `ctrl-p` | Command palette (theme switcher, AI provider, etc.) |
+| `ctrl-c` / `ctrl-q` | Quit |
 
 ## Layout
 
@@ -335,10 +369,15 @@ deglyph/
              render.py   colorized disassembly and hexdump
              glyphs.py   Unicode / ASCII glyph set
              style.tcss  theme
+             fingerprint.py library fingerprinting (zlib / OpenSSL / SQLite / ...)
   ai.py      agentic assistant (bring your own key); read-only tools over Image
-  scan.py    headless CI scanner: secrets, risky imports, build drift, SARIF
-  store.py   per-user annotation sidecar (names, comments, bookmarks)
-  cli.py     command-line entry point (interface, --list/--analyze, scan)
+  scan.py    headless CI scanner: hardening, secrets, libs, imports, drift, SARIF
+  sbom.py    CycloneDX 1.5 / SPDX 2.3 bill of materials
+  cve.py     osv.dev lookups with an on-disk cache
+  report.py  markdown (PR comment) and single-file HTML scan reports
+  export.py  versioned JSON analysis document for other tools
+  store.py   per-user annotation sidecar (names, comments, bookmarks, chats)
+  cli.py     command-line entry point (interface, headless, scan, sbom, export)
 ```
 
 `core` and `re` have no dependency on the interface; they are usable as a library

@@ -26,6 +26,8 @@
   { "id": "github-action", "title": "The GitHub Action", "section": "CI & Scanning", "file": "GitHub-Action.md" },
   { "id": "badges", "title": "Badges", "section": "CI & Scanning", "file": "Badges.md" },
   { "id": "cli-reference", "title": "Command-Line Reference", "section": "Reference", "file": "CLI-Reference.md" },
+  { "id": "export", "title": "Export", "section": "Reference", "file": "Export.md" },
+  { "id": "project", "title": "Project Files", "section": "Reference", "file": "Project.md" },
   { "id": "keyboard-shortcuts", "title": "Keyboard Shortcuts", "section": "Reference", "file": "Keyboard-Shortcuts.md" },
   { "id": "configuration", "title": "Configuration & Environment", "section": "Reference", "file": "Configuration.md" },
   { "id": "rules-catalog", "title": "Scan Rules Catalog", "section": "Reference", "file": "Rules-Catalog.md" },

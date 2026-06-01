@@ -40,6 +40,15 @@ These detectors point at the right instructions; they do not certify behavior.
 Treat every hit as a lead to verify in the [disassembly](Disassembly.md), not as
 a fact. See [Heuristics, Not Proofs](Heuristics.md) for the full contract.
 
+## Architecture coverage
+
+The detectors run over an architecture-neutral operand walk, so they cover x86,
+x86-64, and AArch64 (arm64) targets. On 32-bit ARM they report nothing until that
+operand walk is added; the file still loads, lists functions, and disassembles.
+The [pseudo-C](Pseudo-C.md) view is x86-only. Headless `--json` output carries an
+`analysis_support` block so a consumer can tell "no hits" from "not supported on
+this architecture".
+
 ## Headless analysis
 
 The same output is available for scripting:
