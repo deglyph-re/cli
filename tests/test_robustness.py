@@ -16,10 +16,12 @@ from deglyph.re import (
     callees_of,
     callers_of,
     detect_crc_loops,
+    extract_strings,
     function_constants,
     immediate_stores,
     thunk_chain,
 )
+from deglyph.re.discover import scan_targets
 
 UNPARSEABLE = {
     "empty": b"",
@@ -78,3 +80,13 @@ def test_load_does_not_crash_on_minimal_elf_header(tmp_path):
     assert img.arch in tuple(Arch)
     # builds the index over whatever (if any) text exists
     callers_of(img, 0)
+
+
+def test_whole_image_passes_tolerate_garbage_code(code_image):
+    # The whole-image passes (not just the per-function detectors) must survive
+    # an undecodable .text: a deterministic pseudo-random stream of 1 KiB.
+    blob = bytes((i * 53 + 7) & 0xFF for i in range(1024))
+    img = code_image(blob)
+    assert isinstance(scan_targets(img), list)
+    assert isinstance(callers_of(img, 0x1000), list)
+    assert isinstance(extract_strings(img, raw=True), list)
