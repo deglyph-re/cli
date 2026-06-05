@@ -209,7 +209,7 @@ runs:
     # Publish findings to the Security tab. always() so a failing gate still
     # uploads; the gating step exported the SARIF path it wrote.
     - if: ${{ always() && inputs.upload-sarif == 'true' }}
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: ${{ steps.scan.outputs.sarif }}
 
