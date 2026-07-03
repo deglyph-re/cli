@@ -196,7 +196,7 @@ def thunk_chain(image: Image, va: int, depth: int = 8) -> list[int]:
 
     Returns [va, ..., real]. Follows tail-`jmp` thunks freely. For
     argument-marshalling wrappers (validate handle, shuffle args, then `call`
-    the impl) it follows the last in-image call — but stops as soon as it reaches
+    the impl) it follows the last in-image call, but stops as soon as it reaches
     a function that builds structure itself, so it doesn't descend into the
     implementation's own sub-helpers (CRC, transport, etc.).
     """
@@ -215,7 +215,7 @@ def thunk_chain(image: Image, va: int, depth: int = 8) -> list[int]:
             if _has_body(image, cur):
                 break
             continue
-        # 2) if the current function already builds structure, it's the impl — stop
+        # 2) if the current function already builds structure, it's the impl: stop
         if _has_body(image, cur):
             break
         # 3) otherwise treat as a marshalling wrapper: hop to its last in-text call

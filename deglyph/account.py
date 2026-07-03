@@ -5,7 +5,7 @@ Account state for the optional hosted (Pro) tier.
 
 `deglyph login` stores a token here; the hosted AI backend (see `ai.py`) sends it
 to the server, which runs the model with its own key and enforces entitlements.
-With no token the tool is fully local and this module is dormant -- nothing here
+With no token the tool is fully local and this module is dormant: nothing here
 contacts the network. The server (`api.deglyph.dev`) is a separate, private repo;
 this side is just a token file plus the endpoint URL.
 """

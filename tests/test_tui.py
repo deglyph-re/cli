@@ -432,7 +432,7 @@ def test_assistant_unavailable_shows_reason(host_binary, tmp_path, monkeypatch):
             await pilot.press("enter")
             await pilot.pause()
             log = _pane_text(app, "#ai-log")
-            # the question still echoes -- never silent
+            # the question still echoes, never silent
             assert "hello?" in log
             # actionable
             assert "anthropic" in log or "ANTHROPIC_API_KEY" in log
@@ -594,7 +594,7 @@ def test_tree_selection_drives_panes_and_reselect(host_binary, tmp_path, monkeyp
             assert app._current().va == va
             # an unknown VA is a no-op, not a crash
             assert app._select_func_node(0xDEADBEEF) is False
-            # every Func in the unfiltered view appears as a leaf — a flat
+            # every Func in the unfiltered view appears as a leaf; a flat
             # bucket (subs, top-level names) must not silently drop entries.
             total_funcs = sum(1 for f in app.image.funcs)
             assert len(app._rows) == total_funcs

@@ -34,3 +34,9 @@ Quick-reference table of recurring pitfalls and their fixes. Full per-subsystem 
 | Snapshotting expansion by raw label | Labels carry trailing `(N)` counts; `_node_key` strips the suffix, don't bypass it. |
 | Forgetting to stop the discovery spinner on early return | `_stop_discovery_spinner` must run before any path touching `#functions`. |
 | Emitting a non-ASCII separator in report markdown | The `$GITHUB_STEP_SUMMARY` append is decoded as cp1252 on Windows; keep report output ASCII. |
+| Emitting a partial or best-effort demangled name | `core/demangle.py` is correct-or-None: an unhandled Rust v0 production must return None (raw shown), never a half-decoded guess. A name is displayed as fact. |
+| Recovering a Go name and letting it overwrite a symbol | `add_go_functions` skips a VA a container already named; a real symbol always wins over a pclntab-recovered name. |
+| Mutating `image.funcs` with Go names on the discovery worker | `go_functions` is read-only; apply names with `add_go_functions` on the UI thread (same rule as `add_discovered`). |
+| Classifying an ARM branch by the `b.` prefix | 32-bit ARM spells conditional branches `bne`/`beq` (no dot); they live in `_COND_BRANCH` explicitly. AArch64 uses `b.<cc>`. |
+| Loosening the jump-table gate in the CFG | `_jump_table_targets` requires an indexed operand, arch-matching pointer width, and >=2 consecutive mapped code pointers; loosen it and data reads as code. |
+| Claiming detectors work on RISC-V | RISC-V is load-and-disassemble only; `_analysis_support` reports the detectors off (Capstone's control-flow groups are unreliable there). |

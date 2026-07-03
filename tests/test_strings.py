@@ -24,7 +24,7 @@ def test_string_runs_ascii_and_utf16():
 
 
 def test_string_runs_detects_utf8():
-    # "café menu" -- the e-acute makes it a UTF-8 (not pure-ASCII) run.
+    # "café menu": the e-acute makes it a UTF-8 (not pure-ASCII) run.
     data = "café menu".encode() + b"\x00"
     runs = list(string_runs(data, min_len=4))
     utf8 = [(enc, text) for _, enc, text in runs if enc == "utf-8"]

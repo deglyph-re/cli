@@ -568,7 +568,7 @@ def test_force_summary_appends_user_turn_when_no_tail():
 def test_xrefs_tool_renders_callees(code_image):
     """Exercise the _nm closure when there are callees but no symbol at the address."""
     # call 0x100c (relative); ret. The call target is unmapped, so _nm falls
-    # back to either nearest_func or the raw VA — both arms are covered.
+    # back to either nearest_func or the raw VA; both arms are covered.
     a, _ = _assistant_with_code(code_image, "e8 07 00 00 00 c3")
     out = a._run_tool("xrefs", {"target": "0x1000"})
     assert "callers:" in out and "callees:" in out
@@ -641,7 +641,7 @@ def test_xrefs_tool_handles_data_address(code_image):
         Section(name=".rdata", va=0x1100, size=8, raw_off=8, raw_size=8, flags="R"),
     ]
     # lea rax, [rip + 0xf3] ; ret
-    #   instruction at 0x1000, size 7 (lea) — target = 0x1000 + 7 + 0xf9 = 0x1100
+    #   instruction at 0x1000, size 7 (lea); target = 0x1000 + 7 + 0xf9 = 0x1100
     # encoding: 48 8d 05 f9 00 00 00 c3
     code = bytes.fromhex("48 8d 05 f9 00 00 00 c3")
     data = b"hello\x00\x00\x00"

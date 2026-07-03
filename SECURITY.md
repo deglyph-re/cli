@@ -13,12 +13,19 @@ structure, and disassembles its code; it never runs the target.
 
 ## Data sent to third parties
 
-The optional AI assistant (the `ai` extra) sends data off the machine. When a
-question is asked in the Assistant tab, the selected function's disassembly and
-the conversation are sent to the Anthropic API over the network. This happens
-only after a question is asked and only when `ANTHROPIC_API_KEY` is set; the rest
-of deglyph is fully offline. Do not use the assistant on binaries whose contents
-may not leave your environment. No other feature contacts the network.
+The optional AI assistant sends data off the machine. When a question is asked
+in the Assistant tab, the selected function's disassembly, the conversation, and
+whatever the assistant's read-only tools read from the binary are sent to the
+configured model provider: the Anthropic API by default, any OpenAI-compatible
+endpoint chosen in the provider settings, or the hosted deglyph service when a
+`deglyph login` token is stored. A local provider (Ollama, LM Studio) keeps that
+traffic on the machine. Nothing is sent until a question is asked and a provider
+is configured. Do not use the assistant on binaries whose contents may not leave
+your environment.
+
+CVE lookups (`deglyph scan --cve`) send the detected package URLs to osv.dev.
+They are opt-in and off by default; `--offline` forces the no-network path. No
+other feature contacts the network.
 
 ## Reporting a vulnerability
 

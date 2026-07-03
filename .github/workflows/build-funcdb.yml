@@ -44,6 +44,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libssl3 libcurl4 libzstd1 libbz2-1.0 liblzma5 libpcre2-8-0 libexpat1
 
+      - name: Install the aarch64 cross toolchain
+        run: |
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+
       - name: Build key libraries from source (with symbols)
         run: |
           set -x
@@ -72,6 +76,35 @@ jobs:
               && gcc -g -O2 -fPIC -shared sqlite3.c -o libsqlite3.so ) || true
           fi
 
+      # Cross-compile the same set for aarch64 so the corpus can identify arm64
+      # functions, not only x86-64 ones. Each build reuses the sources unpacked
+      # above; the compiler prefix is the only difference.
+      - name: Cross-build key libraries for aarch64 (with symbols)
+        run: |
+          set -x
+          cross=aarch64-linux-gnu-gcc
+          mkdir -p "$SRC/arm64"
+
+          if [ -d "$SRC/zlib-${ZLIB_VERSION}" ]; then
+            cp -r "$SRC/zlib-${ZLIB_VERSION}" "$SRC/arm64/zlib-${ZLIB_VERSION}"
+            ( cd "$SRC/arm64/zlib-${ZLIB_VERSION}" \
+              && CHOST=aarch64-linux-gnu CC="$cross" CFLAGS="-g -O2" ./configure \
+              && make -j"$(nproc)" ) || true
+          fi
+
+          if [ -d "$SRC/lz4-${LZ4_VERSION}" ]; then
+            cp -r "$SRC/lz4-${LZ4_VERSION}" "$SRC/arm64/lz4-${LZ4_VERSION}"
+            ( cd "$SRC/arm64/lz4-${LZ4_VERSION}" \
+              && make -j"$(nproc)" CC="$cross" CFLAGS="-g -O2" ) || true
+          fi
+
+          if [ -d "$SRC/sqlite-amalgamation-${SQLITE_AMALG}" ]; then
+            cp -r "$SRC/sqlite-amalgamation-${SQLITE_AMALG}" \
+              "$SRC/arm64/sqlite-amalgamation-${SQLITE_AMALG}"
+            ( cd "$SRC/arm64/sqlite-amalgamation-${SQLITE_AMALG}" \
+              && "$cross" -g -O2 -fPIC -shared sqlite3.c -o libsqlite3.so ) || true
+          fi
+
       - name: Resolve sqlite version
         id: sqlite
         run: |
@@ -90,6 +123,9 @@ jobs:
             --source "zlib:${ZLIB_VERSION}:${SRC}/zlib-${ZLIB_VERSION}/libz.so.${ZLIB_VERSION}" \
             --source "lz4:${LZ4_VERSION}:${SRC}/lz4-${LZ4_VERSION}/lib/liblz4.so" \
             --source "sqlite:${SQLITE_VERSION}:${SRC}/sqlite-amalgamation-${SQLITE_AMALG}/libsqlite3.so" \
+            --source "zlib:${ZLIB_VERSION}:${SRC}/arm64/zlib-${ZLIB_VERSION}/libz.so.${ZLIB_VERSION}" \
+            --source "lz4:${LZ4_VERSION}:${SRC}/arm64/lz4-${LZ4_VERSION}/lib/liblz4.so" \
+            --source "sqlite:${SQLITE_VERSION}:${SRC}/arm64/sqlite-amalgamation-${SQLITE_AMALG}/libsqlite3.so" \
             --output manifest.json
 
       - name: Build the corpus
@@ -97,6 +133,13 @@ jobs:
 
       - name: Clean up build artifacts
         run: rm -rf "$SRC" manifest.json
+
+      # A corpus that breaks the suite must never land on main (it did once:
+      # tests assumed an empty bundled corpus and went red for a month).
+      - name: Test against the regenerated corpus
+        run: |
+          pip install pytest
+          pytest tests/test_funcdb.py tests/test_scan.py -q
 
       - name: Commit the regenerated corpus
         run: |

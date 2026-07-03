@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # deglyph
 """
-deglyph TUI — the interactive front end.
+deglyph TUI: the interactive front end.
 
 Layout: a live-searchable item tree on the left (Binary, Functions, Strings);
 a tabbed detail view on the right whose visible tabs track the kind of the
@@ -54,6 +54,7 @@ from ..core.image import Arch, Image, load_image
 from ..re import (
     CallNode,
     add_discovered,
+    add_go_functions,
     call_immediate_args,
     call_tree,
     callees_of,
@@ -62,6 +63,7 @@ from ..re import (
     detect_crc_loops,
     extract_strings,
     function_constants,
+    go_functions,
     immediate_stores,
     pseudo_c,
     referenced_data,
@@ -418,7 +420,7 @@ class _HeaderBar(Horizontal):
     """The title bar: menu glyph, title, navigation controls, and a clock.
 
     Replaces Textual's `Header` so the nav controls live in the same band and the
-    bar can never expand -- there is no tall-toggle to confuse the user.
+    bar can never expand; there is no tall-toggle to confuse the user.
     """
 
     def compose(self) -> ComposeResult:
@@ -729,8 +731,8 @@ class FilePicker(ModalScreen):
 class WelcomeScreen(Screen):
     """Landing screen: the logo, a welcome, and a menu of sessions / Open a file.
 
-    Dismisses with `(path, restore)` -- `restore` adopts that binary's saved
-    annotations -- or None if the user quits.
+    Dismisses with `(path, restore)` (`restore` adopts that binary's saved
+    annotations), or None if the user quits.
     """
 
     BINDINGS = [Binding("escape,q", "quit_app", "Quit")]
@@ -845,7 +847,7 @@ class DeglyphApp(App):
     COMMANDS = {_OrderedSystemCommands}
 
     # Ordered like a native menu bar (the footer reads left to right): find,
-    # then navigate, view, annotate, help -- and Quit last. Labels are Title Case;
+    # then navigate, view, annotate, help, and Quit last. Labels are Title Case;
     # an ellipsis marks actions that prompt for more input before completing; view
     # labels match their tab names so a shortcut and its destination read alike.
     BINDINGS = [
@@ -1184,19 +1186,24 @@ class DeglyphApp(App):
 
     @work(exclusive=True, thread=True, group="discover")
     def _discover_worker(self) -> None:
+        # Both scans are read-only; the mutate happens in _discovery_done on the
+        # UI thread so it never races the table build.
         try:
+            gofuncs = go_functions(self.image)
             targets = scan_targets(self.image)
         # never let discovery crash the app
         except Exception:
-            targets = []
-        self.call_from_thread(self._discovery_done, targets)
+            gofuncs, targets = [], []
+        self.call_from_thread(self._discovery_done, targets, gofuncs)
 
-    def _discovery_done(self, targets: list) -> None:
+    def _discovery_done(self, targets: list, gofuncs: list | None = None) -> None:
         self._stop_discovery_spinner()
         keep = self._current_item()
         # The initial build was skipped while discovery ran (disabled tree), so
-        # rebuild unconditionally to populate the named-symbol rows; new sub_*
-        # entries are folded in when add_discovered found any.
+        # rebuild unconditionally to populate the named-symbol rows; Go pclntab
+        # names land first so the call scan only adds the rest as sub_* entries.
+        if gofuncs:
+            add_go_functions(self.image, gofuncs)
         add_discovered(self.image, targets)
         self._apply_filter()
         if keep is not None:
@@ -1373,7 +1380,7 @@ class DeglyphApp(App):
     def _apply_filter(self) -> None:
         """Rebuild the item tree from the current search filter.
 
-        Lays out three top-level sections — Binary, Functions, Strings — and
+        Lays out three top-level sections (Binary, Functions, Strings) and
         binds each leaf's `data` to a tagged item: a bare int for a Func (its
         index in `self._rows`), or `(kind, payload)` for the other kinds.
         `self._va_nodes` / `_string_nodes` / `_section_nodes` / `_binary_node`
@@ -2401,7 +2408,7 @@ class DeglyphApp(App):
         if real != func.va:
             t.append(f"  (impl {real:#x})", style=DIM)
         t.append(
-            "\nheuristic; registers shown as variables -- confirm in Disasm\n\n",
+            "\nheuristic; registers shown as variables; confirm in Disasm\n\n",
             style=DIM,
         )
         lines = pseudo_c(img, real)
@@ -2767,7 +2774,7 @@ class DeglyphApp(App):
         and tree rebuild off the worker.
 
         If `origin` is no longer pending (the user clicked Stop, or this is a
-        stale double-reply), the reply is dropped — even the renames, since
+        stale double-reply), the reply is dropped, even the renames, since
         applying them silently after a Stop would surprise the user.
         """
         if origin not in self._ai_pending:
@@ -2816,7 +2823,7 @@ class DeglyphApp(App):
         applied = 0
         for va, name in renames.items():
             if not self.image or self.image.func_at(va) is None:
-                # an outdated or invalid VA — silently skip rather than poison
+                # an outdated or invalid VA: silently skip rather than poison
                 continue
             self._anno.names[va] = name
             applied += 1

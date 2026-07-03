@@ -15,6 +15,15 @@ set of functions that are actually called somewhere in the binary.
 This is what makes clicks land, cross-references resolve, and the call graph fill
 in on binaries like a stripped system DLL.
 
+## Go binaries get real names
+
+A Go program keeps a function table (the pclntab) even when it is stripped, and
+that table names every function it contains. `deglyph` reads it first, so a Go
+binary shows real names like `main.main` and `net/http.(*Server).Serve` instead
+of `sub_*`. The call-target scan then only adds whatever the table did not name.
+Go builds from version 1.2 through the current layout are recognized; a table
+that fails validation is ignored rather than trusted.
+
 ## When it runs
 
 Discovery runs automatically after load, in both the interface and the headless
@@ -36,7 +45,10 @@ misses:
 
 - functions reached only through an indirect call (a call through a register or
   a vtable slot),
-- tail-call-only functions entered by `jmp` rather than `call`.
+- tail-call-only functions entered by `jmp` rather than `call`,
+- functions reached only through a jump table whose base is computed in a
+  register (a simple memory-operand table has its arms resolved; a
+  register-computed one does not).
 
 A function that is never the target of a direct call will not appear as a
 `sub_*`. You can still navigate to it with goto if you know its address, and

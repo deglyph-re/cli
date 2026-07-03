@@ -2,8 +2,8 @@
 
 Real projects accumulate findings that are understood and accepted: a credential
 keyword that is really a struct field, an unsigned internal build, a library the
-team has already reviewed. `deglyph` lets you suppress these so the scan stays
-meaningful and the gate stays green on known-good builds. Suppression is applied
+team has already reviewed. Suppressing these keeps the scan meaningful and the
+gate green on known-good builds. Suppression is applied
 centrally, so the report and the exit code always agree.
 
 ## Ignore by rule

@@ -48,8 +48,11 @@ detection when a file is mislabeled or you want to read one slice a different wa
 and, for stripped binaries that export nothing, functions recovered by scanning
 `.text` for `call` targets, named `sub_<address>`. (A release `notepad.exe` has no
 exports; discovery turns its lone entrypoint into hundreds of navigable functions.)
-Functions are grouped into expandable folders by kind and name prefix, and you
-type to filter with a subsequence match (`encfr` finds `encode_frame`).
+A stripped Go binary is named from its pclntab, so it shows real names like
+`main.main` rather than `sub_*`, and C++ and Rust symbols (including the Rust v0
+scheme) are demangled to readable names. Functions are grouped into expandable
+folders by kind and name prefix, and you type to filter with a subsequence match
+(`encfr` finds `encode_frame`).
 
 **Read disassembly.** Branch and call targets are resolved against the symbol
 table and shown by name. Targets inside the image are clickable: click one to
@@ -86,9 +89,9 @@ These are heuristics that point you at the right instructions. The disassembly
 view is always one key away to confirm what a detector found.
 
 The detectors run over an architecture-neutral operand walk, so they inspect
-x86, x86-64, and AArch64 (arm64) targets. The pseudo-C view is still x86-only.
-On 32-bit ARM, deglyph loads the file, lists functions, resolves wrappers, and
-disassembles, but the detectors report nothing until that operand walk is added.
+x86, x86-64, AArch64 (arm64), and 32-bit ARM targets. The pseudo-C view is still
+x86-only. RISC-V (RV32 / RV64) loads and disassembles, with the detectors off.
+deglyph reads native code only; managed formats (.NET, JVM) are out of scope.
 
 **Extract the data.** Press `s` for a browsable list of every string in the
 binary (ASCII, UTF-8, and UTF-16LE, with address and section): a built-in
@@ -223,6 +226,14 @@ pip install -e .
 deglyph path/to/library.dll
 ```
 
+Each tagged release also attaches a self-contained `deglyph-<os>.pyz` zipapp for
+Linux, macOS, and Windows: one file with every dependency bundled, run directly
+by a host with Python 3.10 or newer and no install step.
+
+```bash
+python deglyph-Linux.pyz path/to/library.dll
+```
+
 ## Set up the AI assistant
 
 The assistant ships with deglyph, so there is nothing extra to install. It stays
@@ -349,7 +360,7 @@ osv.dev (needs network), `entropy` enables the noisy high-entropy rule, and
 a pull request, the action keeps a single sticky comment in sync instead of
 stacking a new one per push. Use `fail-on` (`note` / `warning` / `error` / `never`)
 to choose whether a finding fails the job; the copy above leaves gating to code
-scanning. The same file lives at
+scanning. A ready-to-copy variant lives at
 [`examples/deglyph-scan.yml`](examples/deglyph-scan.yml).
 
 ## Badges
@@ -396,24 +407,33 @@ For a live badge that tracks your latest scan, `deglyph scan --format badge` wri
 deglyph/
   core/      image.py    LIEF -> Image: base, sections, function list
              disasm.py   Capstone wrapper: arch mapping, disassembly, thunk follow
+             demangle.py C++ (MSVC / Itanium) and Rust (legacy + v0) demangling
   re/        search.py   byte / string / immediate image search
              strings.py  string extraction and per-function data references
              xref.py     callers, callees, wrapper-to-implementation chain
              patterns.py immediate_stores, call_immediate_args, detect_crc_loops
              pseudo.py   heuristic C-like view of a function
-             discover.py recover sub_* functions by scanning call targets
+             discover.py recover sub_* functions from unwind tables and call targets
+             gosym.py    Go pclntab function-name recovery
+             unwind.py   authoritative function starts from unwind metadata
+             cfg.py      bounded per-function control-flow graph
+             funcsig.py  content-addressed function identity (hash + similarity)
+             funcdb.py   function fingerprinting against a signature corpus
+             bindiff.py  semantic function diff between two builds
+             fingerprint.py library fingerprinting (zlib / OpenSSL / SQLite / ...)
   tui/       app.py      Textual application
              render.py   colorized disassembly and hexdump
-             glyphs.py   Unicode / ASCII glyph set
+             glyphs.py   Nerd Font / Unicode / ASCII glyph set
              style.tcss  theme
-             fingerprint.py library fingerprinting (zlib / OpenSSL / SQLite / ...)
   ai.py      agentic assistant (bring your own key); read-only tools over Image
   scan.py    headless CI scanner: hardening, secrets, libs, imports, drift, SARIF
   sbom.py    CycloneDX 1.5 / SPDX 2.3 bill of materials
   cve.py     osv.dev lookups with an on-disk cache
+  attest.py  signed, machine-checkable scan attestations
   report.py  markdown (PR comment) and single-file HTML scan reports
   export.py  versioned JSON analysis document for other tools
   store.py   per-user annotation sidecar (names, comments, bookmarks, chats)
+  cache.py   on-disk cache for the slow whole-image passes
   cli.py     command-line entry point (interface, headless, scan, sbom, export)
 ```
 

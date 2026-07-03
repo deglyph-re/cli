@@ -17,9 +17,14 @@ annotation with no type recovery and no control-flow structuring. Read it as
 commentary on the disassembly, not as source.
 
 **It does not reconstruct full control flow.** Disassembly is linear and the
-[CFG](How-It-Works.md) is bounded. Indirect and virtual calls, computed jumps, and
-jump tables are not resolved to their targets, so the call graph through them is
+[CFG](How-It-Works.md) is bounded. Simple memory-operand jump tables have their
+cases resolved, but indirect and virtual calls, register-computed jumps, and
+tables reached through a register are not, so the call graph through them is
 incomplete.
+
+**It does not analyze managed code.** .NET / CLR assemblies, JVM bytecode, and
+other managed formats hold intermediate language, not native code; `deglyph`
+reads native PE / ELF / Mach-O only. This is a non-goal, not a gap to close.
 
 ## Where the analysis is weak
 
@@ -36,10 +41,13 @@ here means "not recovered by this method", not "not present".
 - **Obfuscated or packed binaries.** Control-flow flattening, opaque predicates,
   and packers defeat the pattern detectors and often the disassembler itself.
   `deglyph` does not unpack.
-- **Unusual ABIs and architectures.** Operand-level features (clickable targets,
-  the [pattern detectors](Pattern-Detectors.md)) use the x86 operand API; on ARM,
-  AArch64, and other targets the disassembly still renders but those features are
-  limited. See [Loading Binaries](Loading-Binaries.md).
+- **Unusual ABIs and architectures.** The disassembler covers x86, x86-64, ARM,
+  AArch64, and RISC-V (RV32 / RV64). The [pattern detectors](Pattern-Detectors.md)
+  and referenced-data view inspect x86, x86-64, AArch64, and 32-bit ARM; on
+  RISC-V the disassembly renders but the detectors report nothing (the
+  headless JSON marks them unsupported), and the [pseudo-C view](Pseudo-C.md)
+  stays x86-only. MIPS, PowerPC, and other targets are not supported. See
+  [Loading Binaries](Loading-Binaries.md).
 - **Register-folded CRC and crypto loops.** CRC detection recognizes clean
   unrolled bit loops and misses folded or table-driven variants. See
   [Pattern Detectors](Pattern-Detectors.md).

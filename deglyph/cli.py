@@ -65,6 +65,11 @@ def _arch(s: str | None) -> Arch | None:
         "arm": Arch.ARM,
         "arm64": Arch.ARM64,
         "aarch64": Arch.ARM64,
+        "riscv": Arch.RISCV64,
+        "riscv64": Arch.RISCV64,
+        "rv64": Arch.RISCV64,
+        "riscv32": Arch.RISCV32,
+        "rv32": Arch.RISCV32,
     }.get(s, None)
 
 
@@ -996,11 +1001,11 @@ def _analysis_support(arch) -> dict:
     """Per-feature architecture support, surfaced in JSON so absent != unsupported.
 
     The operand-level detectors (immediate stores, call-arg constants, CRC loops,
-    constants, data refs) run on x86/x64/ARM64 via the arch-neutral operand
-    walker; pseudo-C is still an x86-only statement model. A feature marked False
-    here yields an empty result by design, not because nothing was found.
+    constants) run on x86/x64/ARM64/ARM via the arch-neutral operand walker;
+    pseudo-C is still an x86-only statement model. A feature marked False here
+    yields an empty result by design, not because nothing was found.
     """
-    ops = arch in (Arch.X86, Arch.X64, Arch.ARM64)
+    ops = arch in (Arch.X86, Arch.X64, Arch.ARM64, Arch.ARM)
     return {
         "immediate_stores": ops,
         "call_immediate_args": ops,

@@ -29,7 +29,7 @@ With [the GitHub Action](GitHub-Action.md), set the `badge` input to a path insi
 
 ```yaml
       - name: Scan with deglyph
-        uses: deglyph-re/cli@v1
+        uses: deglyph-re/cli@v1.3.0
         with:
           path: build/app
           fail-on: never                    # record the result, do not fail the job

@@ -11,8 +11,10 @@ htmlcov/
 .ruff_cache/
 .DS_Store
 *.sarif
-.claude
 TODO.md
+
+# Shared Claude Code config (.claude/) is tracked; per-user overrides are not.
+.claude/settings.local.json
 
 # Private launch / business setup notes; never publish.
 LAUNCH.md

@@ -1,6 +1,6 @@
 # Strings & Search
 
-`deglyph` extracts the strings embedded in a binary and lets you search its bytes,
+`deglyph` extracts the strings embedded in a binary and searches its bytes,
 strings, and immediate constants. These are often the fastest way into an unknown
 binary: a format string, an error message, or a magic constant points straight at
 the code that uses it.
@@ -8,8 +8,8 @@ the code that uses it.
 ## The Strings tab
 
 Press <kbd>s</kbd> to browse every string in the binary. A single extraction
-engine yields both **ASCII** and **UTF-16LE** runs, each mapped to its virtual
-address and section. The list is built lazily and cached, so opening it on a
+engine yields **ASCII**, **UTF-8**, and **UTF-16LE** runs, each mapped to its
+virtual address and section. The list is built lazily and cached, so opening it on a
 large binary stays responsive.
 
 The same extraction is available headlessly, in a form that pipes and greps

@@ -1,7 +1,7 @@
 name: Release
 
 # Build and publish to PyPI when a v* tag is pushed. Uses PyPI Trusted
-# Publishing (OIDC) -- no API token is stored in the repo. One-time setup on
+# Publishing (OIDC); no API token is stored in the repo. One-time setup on
 # PyPI is required; see CONTRIBUTING.md -> Releasing.
 
 on:
@@ -56,3 +56,49 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Create the GitHub Release once, so the per-OS standalone builds have a
+  # target to attach to. --verify-tag ties it to the pushed tag; a re-run finds
+  # the release already present and is a no-op.
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release if absent
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+
+  # A self-contained zipapp per OS: one file bundling deglyph and its
+  # dependencies, runnable as `python deglyph-<os>.pyz` on a host with Python
+  # 3.10+ (no pip install needed). Compiled deps (LIEF, Capstone) are platform
+  # specific, so each OS builds its own.
+  standalone:
+    needs: github-release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the zipapp
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip shiv
+          python -m shiv -c deglyph -o "deglyph-${{ runner.os }}.pyz" .
+      - name: Attach it to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "deglyph-${{ runner.os }}.pyz" --clobber

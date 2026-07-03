@@ -1,5 +1,5 @@
 @echo off
-rem deglyph quick launcher (Windows) -- Author: Alex Spataru | GPLv3
+rem deglyph quick launcher (Windows). Author: Alex Spataru | GPLv3
 rem
 rem Bootstraps an isolated venv (first run only), installs requirements, and
 rem launches deglyph. Pass any deglyph arguments straight through:

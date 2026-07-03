@@ -62,6 +62,55 @@ def test_unreachable_tail_is_reported_as_a_gap(code_image):
     assert all(b.end <= 0x1001 for b in cfg.blocks)
 
 
+def test_jump_table_arms_are_recovered(tmp_path):
+    # jmp qword ptr [rax*8 + 0x2000]: an absolute-pointer switch table with two
+    # code-pointer entries (0x1040, 0x1050) then a zero terminator. The CFG must
+    # resolve both arms instead of stopping at a bare indirect jump.
+    from deglyph.core.image import Arch, Image, Section
+
+    text = bytearray(b"\xcc" * 0x100)
+    text[0x00:0x07] = bytes.fromhex("ff24c500200000")
+    text[0x40] = 0xC3
+    text[0x50] = 0xC3
+    table = (
+        (0x1040).to_bytes(8, "little") + (0x1050).to_bytes(8, "little") + b"\x00" * 8
+    )
+    blob = bytes(text).ljust(0x1000, b"\x00") + table
+    p = tmp_path / "jt.bin"
+    p.write_bytes(blob)
+    img = Image(path=str(p), fmt="ELF", arch=Arch.X64, base=0)
+    img.sections.append(
+        Section(
+            name=".text", va=0x1000, size=0x100, raw_off=0, raw_size=0x100, flags="RX"
+        )
+    )
+    img.sections.append(
+        Section(
+            name=".rodata",
+            va=0x2000,
+            size=len(table),
+            raw_off=0x1000,
+            raw_size=len(table),
+            flags="R",
+        )
+    )
+    img.reindex()
+    cfg = function_cfg(img, 0x1000)
+    head = next(b for b in cfg.blocks if b.start == 0x1000)
+    assert head.kind == "jumptable"
+    assert set(head.successors) == {0x1040, 0x1050}
+    # both arms were followed and decoded into their own blocks
+    assert {0x1040, 0x1050} <= {b.start for b in cfg.blocks}
+
+
+def test_register_indirect_jump_is_not_a_table(code_image):
+    # jmp rax stays a bare indirect: no memory operand, so no table to resolve.
+    img = code_image(bytes.fromhex("ffe0"))
+    cfg = function_cfg(img, 0x1000)
+    assert cfg.blocks[0].kind == "indirect"
+    assert cfg.blocks[0].successors == []
+
+
 def test_no_section_yields_empty_cfg():
     from deglyph.core.image import Arch, Image
 

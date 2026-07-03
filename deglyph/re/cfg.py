@@ -13,9 +13,11 @@ extent that it never reached.
 
 Public names: `BasicBlock`, `FunctionCFG`, `function_cfg`. The CFG is the backing
 model the linear disassembly view, callees, xrefs, pseudo-C, and detectors can
-share so they all agree on which bytes belong to the function. Heuristic: an
-indirect `jmp` (jump table, `call`-then-`ret` tail) ends a block, so a switch's
-arms are reported as an undecoded gap rather than silently merged in.
+share so they all agree on which bytes belong to the function. An indirect `jmp`
+through a memory-operand jump table (`jmp [table + index*width]`) has its arms
+recovered when the idiom is unambiguous (`_jump_table_targets`); a
+register-computed indirect jump still ends a block with no successor, so its
+arms surface as an undecoded gap rather than being silently merged in.
 """
 
 from __future__ import annotations
@@ -24,11 +26,15 @@ from bisect import bisect_right
 from dataclasses import dataclass, field
 
 from ..core.disasm import Disassembler, Insn
-from ..core.image import Image
+from ..core.image import Arch, Image
 
 # A descent never decodes more than this many instructions, so a runaway or a
 # pathological self-referential stream cannot stall a whole-image scan.
 _MAX_INSNS = 20000
+
+# The most jump-table arms read from one indexed indirect jump; a real switch is
+# well under this, and the cap stops a misread table from running away.
+_MAX_JUMP_ARMS = 256
 
 
 @dataclass(slots=True)
@@ -39,7 +45,7 @@ class BasicBlock:
     insns: list[Insn]
     # VAs this block can transfer control to (fall-through and/or branch target)
     successors: list[int] = field(default_factory=list)
-    # "ret" | "jmp" | "cond" | "indirect" | "fallthrough" | "call-fallthrough"
+    # "ret" | "jmp" | "cond" | "indirect" | "jumptable" | "fallthrough"
     kind: str = "fallthrough"
 
     @property
@@ -144,7 +150,7 @@ def function_insns(image: Image, va: int, *, max_insns: int = _MAX_INSNS) -> lis
     reaches code behind a forward conditional branch or after an early return, so
     a detector no longer misses a store / call that sits past the first `ret`.
     The function's neighbors bound the walk (so it cannot bleed into the next
-    function), and the result is address-ordered -- a strict superset of the old
+    function), and the result is address-ordered, a strict superset of the old
     linear stream for the common fall-through case, which keeps the order-
     sensitive detectors (CRC loops, call-arg liveness) behaving as before there.
     """
@@ -175,9 +181,15 @@ def _decode_block(dis: Disassembler, start: int, limit: int, budget: int) -> Bas
                 block.kind = "jmp"
                 block.successors = [tgt]
             else:
-                # indirect jump (jump table / computed) ends the block with no
-                # statically known successor
-                block.kind = "indirect"
+                # An indirect jump has no immediate target. Recover the arms of a
+                # memory-operand jump table when the idiom is unambiguous; a
+                # register-indirect jump stays a plain indirect with no successor.
+                arms = _jump_table_targets(dis, ins)
+                if arms:
+                    block.kind = "jumptable"
+                    block.successors = arms
+                else:
+                    block.kind = "indirect"
             return block
         if ins.is_cond_branch():
             tgt = ins.imm_target()
@@ -192,6 +204,67 @@ def _decode_block(dis: Disassembler, start: int, limit: int, budget: int) -> Bas
         if nxt < limit:
             block.successors = [nxt]
     return block
+
+
+def _jump_table_targets(dis: Disassembler, ins: Insn) -> list[int]:
+    """Arms of an x86 memory-operand jump table, or [] when not that idiom.
+
+    Handles the form `jmp [<table> + index*width]` (and its RIP-relative
+    variant), where the table holds consecutive absolute code pointers, one per
+    switch case. The width comes from the access size (a `qword ptr` table on
+    x86-64, a `dword ptr` table on x86); the table address is either the
+    RIP-relative or absolute displacement. Register-computed tables and the
+    offset-plus-base form (`jmp reg` after `lea`/`add`) are not resolved here.
+
+    Precision gates, so a data region is never misread as code: the operand must
+    be indexed, the pointer width must match the architecture, and every arm
+    must be a mapped executable address read consecutively from the table with
+    no gap. Fewer than two valid arms is treated as "not a table".
+    """
+    image = dis.image
+    mem = next((op for op in ins.operands() if op.is_mem), None)
+    if mem is None or mem.mem_index is None:
+        return []
+    width = mem.size
+    if width == 8 and image.arch not in (Arch.X64, Arch.ARM64):
+        return []
+    if width == 4 and image.arch != Arch.X86:
+        return []
+    if width not in (4, 8):
+        return []
+    base = (mem.mem_base or "").lower()
+    if base in ("rip", "pc"):
+        table = (ins.addr + ins.size + mem.mem_disp) & 0xFFFFFFFFFFFFFFFF
+    elif mem.mem_base is None:
+        table = mem.mem_disp & 0xFFFFFFFFFFFFFFFF
+    else:
+        # A general-register base means the table address is computed at runtime;
+        # it cannot be resolved from this instruction alone.
+        return []
+    if image.section_at(table) is None:
+        return []
+    arms: list[int] = []
+    for i in range(_MAX_JUMP_ARMS):
+        raw = image.read_va(table + i * width, width)
+        if len(raw) < width:
+            break
+        target = int.from_bytes(raw, "little")
+        if target == 0:
+            break
+        sec = image.section_at(target)
+        if sec is None or "X" not in sec.flags.upper():
+            break
+        arms.append(target)
+    if len(arms) < 2:
+        return []
+    # Preserve order, drop duplicate case targets.
+    seen: set[int] = set()
+    unique: list[int] = []
+    for a in arms:
+        if a not in seen:
+            seen.add(a)
+            unique.append(a)
+    return unique
 
 
 def _find_gaps(blocks: list[BasicBlock], lo: int, hi: int) -> list[Gap]:

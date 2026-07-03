@@ -23,23 +23,34 @@ _OP_REG = 1
 _OP_IMM = 2
 _OP_MEM = 3
 
+# RISC-V decodes with the compressed (C) extension enabled so 16-bit
+# instructions in a real image are not misread as 32-bit ones. RISC-V is
+# little-endian.
+_RISCV_C = getattr(capstone, "CS_MODE_RISCVC", 0)
+
 _ARCH_MODE = {
     Arch.X86: (capstone.CS_ARCH_X86, capstone.CS_MODE_32),
     Arch.X64: (capstone.CS_ARCH_X86, capstone.CS_MODE_64),
     Arch.ARM: (capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM),
     # AArch64 has no sub-mode; the endianness flag is the mode (LITTLE == 0).
     Arch.ARM64: (capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN),
+    Arch.RISCV32: (capstone.CS_ARCH_RISCV, capstone.CS_MODE_RISCV32 | _RISCV_C),
+    Arch.RISCV64: (capstone.CS_ARCH_RISCV, capstone.CS_MODE_RISCV64 | _RISCV_C),
 }
 
-# Mnemonics that terminate a basic block / function tail
-_TERMINATORS = {"ret", "retf", "iret", "iretd", "iretq", "hlt"}
+# Mnemonics that terminate a basic block / function tail. `bx` is the ARM
+# register branch: `bx lr` returns, `bx rN` is an indirect tail; either ends the
+# block with no static successor, so treating it as a terminator is correct.
+_TERMINATORS = {"ret", "retf", "iret", "iretd", "iretq", "hlt", "bx", "bxns"}
 
-# Unconditional jumps: control leaves with no fall-through. x86 `jmp`, ARM `b`
-# (and the indirect `br`, which carries no static target).
-_UNCOND_JMP = {"jmp", "b", "br"}
+# Unconditional jumps: control leaves with no fall-through. x86 `jmp`, ARM `b` /
+# `bal` (and the AArch64 indirect `br`, which carries no static target).
+_UNCOND_JMP = {"jmp", "b", "bal", "br"}
 
-# Conditional branches that fall through when not taken. x86 Jcc / loop, plus the
-# AArch64 compare-and-branch forms (`b.<cc>` is matched by its `b.` prefix).
+# Conditional branches that fall through when not taken. x86 Jcc / loop, the
+# AArch64 compare-and-branch forms (`b.<cc>` is matched by its `b.` prefix), and
+# the 32-bit ARM condition-suffixed branches (`bne`, `beq`, ...), which capstone
+# spells without the dot AArch64 uses.
 _COND_BRANCH = {
     "je",
     "jne",
@@ -69,9 +80,29 @@ _COND_BRANCH = {
     "cbnz",
     "tbz",
     "tbnz",
+    # 32-bit ARM conditional branches (condition code as a mnemonic suffix)
+    "beq",
+    "bne",
+    "bcs",
+    "bhs",
+    "bcc",
+    "blo",
+    "bmi",
+    "bpl",
+    "bvs",
+    "bvc",
+    "bhi",
+    "bls",
+    "bge",
+    "blt",
+    "bgt",
+    "ble",
 }
 
-_BRANCH = _UNCOND_JMP | _COND_BRANCH | {"bl", "blr"}
+# Call mnemonics across the arches: x86 `call`, AArch64 `bl`/`blr`, ARM `blx`.
+_CALLS = {"call", "bl", "blr", "blx"}
+
+_BRANCH = _UNCOND_JMP | _COND_BRANCH | _CALLS
 
 
 @dataclass(slots=True)
@@ -125,7 +156,7 @@ class Insn:
         return self.mnemonic in _TERMINATORS
 
     def is_call(self) -> bool:
-        return self.mnemonic in ("call", "bl", "blr")
+        return self.mnemonic in _CALLS
 
     def is_branch(self) -> bool:
         return self.is_uncond_jmp() or self.is_cond_branch() or self.is_call()

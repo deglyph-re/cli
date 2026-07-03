@@ -143,7 +143,7 @@ def test_crc_loop_labeled_crc_with_evidence(code_image):
 
 
 def test_checksum_loop_labeled_separately(code_image):
-    # add eax,ecx ; rol eax,1 ; dec edx ; jne -7 ; ret -- bit-ops, no polynomial.
+    # add eax,ecx ; rol eax,1 ; dec edx ; jne -7 ; ret. Bit-ops, no polynomial.
     blob = bytes.fromhex("01 c8  d1 c0  ff ca  75 f8  c3")
     img = code_image(blob)
     loops = detect_crc_loops(img, 0x1000)

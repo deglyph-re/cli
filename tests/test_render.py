@@ -22,7 +22,7 @@ def _click_actions(text):
 
 
 def test_in_image_call_target_is_clickable(code_image):
-    # call $+5 ; ret  — target 0x1005 is inside the .text section.
+    # call $+5 ; ret. Target 0x1005 is inside the .text section.
     img = code_image(bytes.fromhex("e8 00 00 00 00 c3"))
     insns = Disassembler(img).func(0x1000)
     text, _ = disasm_text(img, insns)

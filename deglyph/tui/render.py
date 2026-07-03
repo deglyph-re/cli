@@ -167,8 +167,8 @@ def binary_map(image: Image, *, width: int = 48, max_rows: int = 200) -> Text:
 
     Each section gets a header line (name, VA, size, flags) and one or more
     rows of a byte-class strip whose length is proportional to the section's
-    file extent. The strip is colored by content class -- padding, text, code,
-    or dense/high-entropy -- so the shape of the file is readable at a glance.
+    file extent. The strip is colored by content class (padding, text, code,
+    or dense/high-entropy) so the shape of the file is readable at a glance.
     A fat Mach-O notes the active slice at the top.
     """
     try:

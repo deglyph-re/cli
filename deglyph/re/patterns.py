@@ -4,22 +4,23 @@
 Generic instruction-pattern detectors used to recover protocol/structure facts
 from a function without a decompiler:
 
-  * immediate_stores  — immediate-into-memory writes (x86 `mov [mem], imm`;
+  * immediate_stores  - immediate-into-memory writes (x86 `mov [mem], imm`;
                         AArch64 `strb/strh/str [base, #off]` fed by a `movz`),
                         revealing structured-buffer field assignments (opcodes,
                         lengths, magic header bytes).
-  * call_immediate_args — immediates loaded into a register still live at a call,
+  * call_immediate_args - immediates loaded into a register still live at a call,
                         with calling-convention-aware confidence and constant
                         propagation across register moves.
-  * detect_crc_loops  — small loops dominated by xor/shift/and over a byte stream,
+  * detect_crc_loops  - small loops dominated by xor/shift/and over a byte stream,
                         labeled CRC-like (a polynomial xor) or checksum-like.
-  * function_constants— histogram of immediate constants referenced.
+  * function_constants - histogram of immediate constants referenced.
 
 Every hit carries an `Evidence` record: a confidence, the reasons it matched, the
 caveats (why it might be wrong), and the supporting instruction addresses. The
-operand walk is arch-neutral (`Insn.operands`), and the mnemonic sets cover x86
-and AArch64, so the detectors fire on both. They are heuristics, not proofs --
-the evidence makes the uncertainty explicit; confirm in the disassembly.
+operand walk is arch-neutral (`Insn.operands`), and the mnemonic sets cover x86,
+x86-64, AArch64, and 32-bit ARM, so the detectors fire on all four. They are
+heuristics, not proofs: the evidence makes the uncertainty explicit; confirm in
+the disassembly.
 """
 
 from __future__ import annotations
@@ -31,14 +32,14 @@ from ..core.disasm import Insn
 from ..core.image import Arch, Image
 from .cfg import function_insns
 
-# Mnemonics that write a register/immediate to memory (x86 + AArch64 stores). The
-# AArch64 width is encoded in the suffix: strb=1, strh=2, str(w)=4/8.
+# Mnemonics that write a register/immediate to memory (x86 + ARM/AArch64 stores).
+# The ARM width is encoded in the suffix: strb=1, strh=2, str=4/8.
 _STORE_MNEMONICS = {"mov", "movb", "movw", "movl", "strb", "strh", "str", "stur"}
-# Width of an AArch64 store by mnemonic; x86 takes the operand size instead.
+# Width of an ARM/AArch64 store by mnemonic; x86 takes the operand size instead.
 _ARM_STORE_WIDTH = {"strb": 1, "strh": 2}
-# Mnemonics that load an immediate into a register (x86 mov; AArch64 movz/movn,
-# and mov which capstone emits as an alias of orr/movz).
-_IMM_LOAD = {"mov", "movabs", "movz", "movn"}
+# Mnemonics that load an immediate into a register (x86 mov; AArch64 movz/movn;
+# 32-bit ARM mov/movw; mov is also capstone's alias of an orr/movz immediate).
+_IMM_LOAD = {"mov", "movabs", "movz", "movn", "movw"}
 # Register-to-register copies that propagate a tracked constant.
 _REG_MOVE = {"mov", "movzx", "movsx", "mov.w"}
 # Bit-twiddling ops that dominate a CRC/checksum body (x86 + AArch64).
@@ -80,6 +81,8 @@ _ARG_REGS = {
     Arch.X64: _X64_ARGS,
     Arch.X86: {"eax", "ecx", "edx", "al", "cl", "dl"},
     Arch.ARM64: {f"x{i}" for i in range(8)} | {f"w{i}" for i in range(8)},
+    # AAPCS passes the first four integer arguments in r0-r3.
+    Arch.ARM: {f"r{i}" for i in range(4)},
 }
 
 
@@ -197,7 +200,7 @@ def immediate_stores(image: Image, va: int, *, max_insns: int = 1500) -> list[St
                     evidence=_store_evidence(base, disp, ins.addr),
                 )
             )
-        # AArch64: str <reg>, [base, #off]  (src reg, dest mem) -- value via reg_imm
+        # AArch64: str <reg>, [base, #off]  (src reg, dest mem); value via reg_imm
         elif ops[0].is_reg and ops[1].is_mem and ops[0].reg in reg_imm:
             base, disp = ops[1].mem_base, ops[1].mem_disp & 0xFFFFFFFFFFFFFFFF
             value, load_addr = reg_imm[ops[0].reg]

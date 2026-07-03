@@ -43,7 +43,7 @@ native binaries by design; drop it. For specific false positives, suppress the
 rule or the finding fingerprint. See [Secret Detection](Secret-Detection.md) and
 [Suppressing Findings](Suppressing-Findings.md).
 
-**The scan keeps failing on findings we have accepted.** Commit a
+**The scan keeps failing on accepted findings.** Commit a
 [`.deglyphignore`](Suppressing-Findings.md) listing the accepted rules,
 categories, or fingerprints, or raise the threshold with `--fail-on`.
 

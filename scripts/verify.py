@@ -11,13 +11,14 @@ Tone and style verifier for deglyph.
 Two linters in one tool, matching the project's documentation contract
 (see CLAUDE.md):
 
-  * Markdown  — README.md, CLAUDE.md, and any other tracked *.md. Flags
-                marketing copy, AI-narration phrasing, first-person prose,
-                `--` used as a sentence dash, non-ASCII in user-facing docs,
-                and `---` rules used as section dividers.
-  * Python    — deglyph/ and tests/. Flags narration in comments and docstrings,
-                bare `except:`, `# type: ignore` without a reason, and (advisory)
-                functions over the length cap.
+  * Markdown  - README.md, CLAUDE.md, AGENTS.md, CONTRIBUTING.md, SECURITY.md,
+                CHANGELOG.md, and everything under doc/. Flags marketing copy,
+                AI-narration phrasing, first-person prose, `--` used as a
+                sentence dash, non-ASCII in user-facing docs, and `---` rules
+                used as section dividers.
+  * Python    - deglyph/, tests/, and scripts/. Flags narration in comments and
+                docstrings, bare `except:`, `# type: ignore` without a reason,
+                and (advisory) functions over the length cap.
 
 Findings are advisory: the script reports them and exits non-zero so a commit
 hook or CI step can choose whether to gate. Code blocks, inline code, and link
@@ -131,7 +132,7 @@ _NARRATION: list[tuple[re.Pattern, str]] = [
         "narration filler; state the fact directly",
     ),
     (_ci(r"\bas (?:you can|we can) see\b"), "tutorial voice; remove"),
-    # History narration only — the verb sense ("used to map") is fine; the
+    # History narration only: the verb sense ("used to map") is fine; the
     # narrative sense ("this used to be", "X used to do") is not.
     (
         _ci(r"\b(?:this|it|that|which|originally)\s+used to\b"),
@@ -275,7 +276,7 @@ _FUNC_LINE_CAP = 100
 
 
 def _python_comment_and_doc_lines(src: str) -> list[tuple[int, str]]:
-    """Yield (lineno, text) for comment bodies and docstring lines only — the
+    """Yield (lineno, text) for comment bodies and docstring lines only: the
     spans where prose tone rules apply. Code lines are excluded so an identifier
     or a string literal in code is never flagged as prose."""
     out: list[tuple[int, str]] = []
@@ -323,7 +324,7 @@ def _in_string_literal(line: str, hash_pos: int) -> bool:
 def _trailing_comments(src: str) -> dict[int, tuple[int, str]]:
     """Map line -> (col, text) for same-line comments (code before the `#`).
 
-    Tool directives (`# noqa`, `# type:`, ...) are exempt -- they must stay on
+    Tool directives (`# noqa`, `# type:`, ...) are exempt; they must stay on
     the line they apply to. Uses the tokenizer so a `#` inside a string is never
     mistaken for a comment.
     """
@@ -478,7 +479,18 @@ def repo_root() -> Path:
 
 def default_targets() -> list[Path]:
     root = repo_root()
-    return [root / "deglyph", root / "tests", root / "README.md", root / "CLAUDE.md"]
+    return [
+        root / "deglyph",
+        root / "tests",
+        root / "scripts",
+        root / "doc",
+        root / "README.md",
+        root / "CLAUDE.md",
+        root / "AGENTS.md",
+        root / "CONTRIBUTING.md",
+        root / "SECURITY.md",
+        root / "CHANGELOG.md",
+    ]
 
 
 def iter_files(targets: list[Path]) -> tuple[list[Path], list[Path]]:

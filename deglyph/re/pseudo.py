@@ -11,7 +11,7 @@ through as `asm("...")` so the listing stays complete.
 
 This is a readable annotation of the assembly, not a decompiler: there is no type
 recovery, no variable renaming, and no control-flow structuring. Confirm against
-the disassembly. x86 only -- other architectures yield an empty result.
+the disassembly. x86 only; other architectures yield an empty result.
 """
 
 from __future__ import annotations

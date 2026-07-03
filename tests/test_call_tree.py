@@ -37,7 +37,7 @@ def test_depth_cap_marks_elided(code_image):
 
 
 def test_self_recursion_is_cycle_safe(code_image):
-    # 0x1000: call 0x1000 ; ret  — self-call must not recurse forever.
+    # 0x1000: call 0x1000 ; ret. A self-call must not recurse forever.
     # call -5 (-> 0x1000) ; ret
     img = code_image(b"\xe8\xfb\xff\xff\xff\xc3")
     root = call_tree(img, 0x1000, depth=8)

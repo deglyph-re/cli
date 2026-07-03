@@ -3,13 +3,15 @@
 ```
 deglyph/
   core/      image.py    LIEF -> Image: base, sections, Func list (export/symbol/import/entry)
-             disasm.py   Capstone wrapper: arch map, linear func disasm, thunk follow, callees
+             disasm.py   Capstone wrapper: arch map (x86/x64/arm/arm64/riscv), linear func disasm, thunk follow, callees
+             demangle.py MSVC/Itanium C++ (via cxxfilt) + Rust legacy hash-strip + Rust v0 (_R) decoder
   re/        search.py   image-wide byte (?? wildcards) / string (ascii+utf16) / immediate search
              strings.py  value extraction: extract_strings (mapped-literals default; ascii/utf-8/utf-16le; category) + referenced_data (per-func, incl. pointer tables)
              xref.py     callers_of + data_xrefs_to / xrefs_to (cached whole-image code+data index), callees_of, thunk -> impl chain, call_tree
              patterns.py immediate_stores / call_immediate_args / detect_crc_loops / constants; every hit carries an Evidence (confidence/reasons/caveats/support)
              pseudo.py   heuristic x86-only pseudo-C (linear annotation, not a decompiler)
-             discover.py sub_<va> discovery from unwind tables + .text call/tail-jmp targets (scan_targets/add_discovered)
+             discover.py sub_<va> discovery from Go pclntab names + unwind tables + .text call/tail-jmp targets (scan_targets/add_discovered)
+             gosym.py    Go pclntab function-name recovery (go1.2/1.16/1.18/1.20; go_functions/apply_go_symbols)
              unwind.py   authoritative function starts from unwind metadata (Mach-O function-starts / PE .pdata / ELF eh_frame)
              cfg.py      bounded recursive-descent CFG per function (basic blocks + undecoded gaps); backs the linear view
              funcsig.py  content-addressed function identity: normalized-instruction exact hash + n-gram set + Jaccard similarity (the engine)
@@ -18,7 +20,7 @@ deglyph/
              fingerprint.py SIGNATURES table + scan_fingerprint -> LibHit list (zlib/openssl/sqlite/...)
   ai.py      agentic Claude assistant (Anthropic SDK, prompt-cached, opt-in); read-only tools over Image
   attest.py  signed, machine-checkable scan provenance: canonical digest + optional ed25519 signature (lazy `cryptography`, the `sign` extra)
-  data/      funcdb.json  bundled function-signature corpus (grown by scripts/build_funcdb.py in CI; empty seed in the repo)
+  data/      funcdb.json  bundled function-signature corpus (grown and committed by scripts/build_funcdb.py in CI; x86-64 today)
   scan.py    headless CI scanner: hardening / secrets / libs / risky imports / baseline diff / function id (--identify); every Finding has a category (fact/heuristic/policy) + a rule-config (.deglyphrules) overlay
   sbom.py    CycloneDX 1.5 + SPDX 2.3 emitters; root = scanned binary, components = fingerprinted libs
   cve.py     osv.dev client + on-disk cache (~/.deglyph/cve-cache/) keyed by purl, 24h TTL
@@ -41,7 +43,9 @@ doc/help/    the manual: help.json index + categorized Markdown entries (rendere
 doc/claude/  developer reference extracted from this file: architecture.md, common-mistakes.md, extending.md, directory-structure.md
 scripts/     verify.py (tone/style gate) + benchmark.py (cold-pass timings over a binary; not a pytest test)
              build_funcdb.py (harvest the function-signature corpus from a manifest of binaries) + funcdb_manifest.py (resolve apt + from-source libraries into that manifest on a CI runner)
-.github/workflows/  ci.yml (lint/type/tone/test matrix) + build-funcdb.yml (scheduled corpus rebuild, commits to main)
+.github/workflows/  ci.yml (lint/type/tone/test matrix) + build-funcdb.yml (scheduled corpus rebuild, commits to main) + release.yml (tag -> PyPI via Trusted Publishing)
+.claude/     settings.json (permissions + hooks), hooks/verify-edit.sh (verify.py on each edit), skills/ (gate, add-detector, new-help-page, release), agents/invariant-reviewer.md
 action.yml   composite GitHub Action wrapping `deglyph scan`; examples/deglyph-scan.yml is a consumer workflow
+CHANGELOG.md Keep-a-Changelog record; notes accumulate under [Unreleased] and move under the version at release time
 deglyph.sh   self-bootstrapping launcher; deglyph.bat is the Windows equivalent
 ```

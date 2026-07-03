@@ -7,7 +7,7 @@ alerts in the Security tab, and a sticky pull-request comment.
 ## Minimal usage
 
 ```yaml
-- uses: deglyph-re/cli@v1
+- uses: deglyph-re/cli@v1.3.0
   with:
     path: build/app.exe
 ```
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: deglyph-re/cli@v1
+      - uses: deglyph-re/cli@v1.3.0
         with:
           path: build/app.exe
           fail-on: warning

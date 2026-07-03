@@ -5,11 +5,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from deglyph import scan
 from deglyph.re.funcdb import (
     FuncDB,
     FuncSignature,
+    bundled_path,
     identify_functions,
     load_func_db,
 )
@@ -39,11 +41,13 @@ def _sig_for(code_image, blob: bytes, **over) -> FuncSignature:
     return FuncSignature(**fields)
 
 
-def test_bundled_corpus_loads(code_image):
-    # The shipped corpus is valid and (until CI populates it) empty.
+def test_bundled_corpus_loads():
+    # The shipped corpus (grown and committed by CI) parses in full: every
+    # entry in the JSON lands in the index, regardless of corpus size.
+    doc = json.loads(Path(bundled_path()).read_text(encoding="utf-8"))
     db = load_func_db()
     assert isinstance(db, FuncDB)
-    assert len(db) == 0
+    assert len(db) == len(doc["functions"])
 
 
 def test_exact_identification(code_image):
@@ -76,22 +80,24 @@ def test_empty_corpus_matches_nothing(code_image):
 
 
 def test_load_merges_user_corpus(code_image, tmp_path):
+    bundled = len(load_func_db())
     sig = _sig_for(code_image, _A)
     p = tmp_path / "corpus.json"
     p.write_text(
         json.dumps({"funcdb_version": 1, "generated": "", "functions": [sig.to_dict()]})
     )
     db = load_func_db(str(p))
-    assert len(db) == 1
+    assert len(db) == bundled + 1
     matches = identify_functions(code_image(_A), db)
     assert matches and matches[0].func == "inflate"
 
 
-def test_malformed_corpus_degrades_to_empty(tmp_path):
+def test_malformed_corpus_adds_nothing(tmp_path):
+    # A malformed user file contributes nothing on top of the bundled corpus.
     p = tmp_path / "bad.json"
     p.write_text("{ not valid json")
     db = load_func_db(str(p))
-    assert len(db) == 0
+    assert len(db) == len(load_func_db())
 
 
 def test_scan_identify_emits_lib_function(code_image, tmp_path):

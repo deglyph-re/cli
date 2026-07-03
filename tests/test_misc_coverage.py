@@ -84,7 +84,7 @@ def test_config_put_swallows_oserror(tmp_path, monkeypatch):
         raise OSError("denied")
 
     monkeypatch.setattr(os, "makedirs", boom)
-    # silently fails — best-effort persistence
+    # silently fails: best-effort persistence
     config.put("theme", "anything")
     # the file did not get written; the subsequent read still returns None
     assert config.get("theme") is None

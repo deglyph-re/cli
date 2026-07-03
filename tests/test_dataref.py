@@ -90,7 +90,7 @@ def test_pointer_table_decoded_as_first_class_ref():
 
 
 def test_data_xref_is_arch_neutral_arm64():
-    # ldr x0, #0x1008 ; ret -- an AArch64 PC-relative literal load. capstone
+    # ldr x0, #0x1008 ; ret: an AArch64 PC-relative literal load. capstone
     # resolves the literal address into the IMM operand, so the data edge to the
     # .data datum at 0x1008 is recorded through the same arch-neutral path.
     code = bytes.fromhex("40000058") + bytes.fromhex("c0035fd6")

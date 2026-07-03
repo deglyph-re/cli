@@ -147,6 +147,60 @@ SIGNATURES: list[LibSignature] = [
         purl_base="pkg:generic/cpython",
         note="embedded CPython",
     ),
+    LibSignature(
+        name="expat",
+        pattern=re.compile(r"expat_(\d+\.\d+\.\d+)"),
+        purl_base="pkg:generic/expat",
+        note="XML parser",
+    ),
+    LibSignature(
+        name="glibc",
+        pattern=re.compile(r"GNU C Library.*?version (\d+\.\d+)"),
+        purl_base="pkg:generic/glibc",
+        note="GNU C runtime",
+    ),
+    LibSignature(
+        name="openssh",
+        pattern=re.compile(r"OpenSSH_(\d+\.\d+)(?:p\d+)?"),
+        purl_base="pkg:generic/openssh",
+        note="SSH client / server",
+    ),
+    LibSignature(
+        name="libressl",
+        pattern=re.compile(r"LibreSSL (\d+\.\d+\.\d+)"),
+        purl_base="pkg:generic/libressl",
+        note="TLS / crypto",
+    ),
+    LibSignature(
+        name="zlib-ng",
+        pattern=re.compile(r"zlib-ng (\d+\.\d+\.\d+)"),
+        purl_base="pkg:generic/zlib-ng",
+        note="compression",
+    ),
+    LibSignature(
+        name="libjpeg-turbo",
+        pattern=re.compile(r"libjpeg-turbo version (\d+\.\d+\.\d+)"),
+        purl_base="pkg:generic/libjpeg-turbo",
+        note="JPEG codec",
+    ),
+    LibSignature(
+        name="busybox",
+        pattern=re.compile(r"BusyBox v(\d+\.\d+\.\d+)"),
+        purl_base="pkg:generic/busybox",
+        note="embedded userland",
+    ),
+    LibSignature(
+        name="pcre2",
+        pattern=re.compile(r"PCRE2 (\d+\.\d+) \d{4}-\d{2}-\d{2}"),
+        purl_base="pkg:generic/pcre2",
+        note="regex engine",
+    ),
+    LibSignature(
+        name="zstd",
+        pattern=re.compile(r"Zstandard v(\d+\.\d+\.\d+)"),
+        purl_base="pkg:generic/zstd",
+        note="compression",
+    ),
 ]
 
 

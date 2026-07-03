@@ -20,8 +20,8 @@ the provider, the model, and the base URL. The built-in providers are:
 | LM Studio | OpenAI-compatible |
 | Custom | OpenAI-compatible |
 
-A custom provider lets you point at any OpenAI-compatible `/chat/completions`
-endpoint by URL and model name. Selecting it reveals a free-text model field.
+The custom provider targets any OpenAI-compatible `/chat/completions` endpoint
+by URL and model name. Selecting it reveals a free-text model field.
 
 ## Request shapes, not brand names
 

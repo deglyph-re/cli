@@ -1,5 +1,5 @@
 """
-deglyph — a terminal reverse-engineering tool for native binaries.
+deglyph: a terminal reverse-engineering tool for native binaries.
 
 Loads a PE / ELF / Mach-O (or fat) object, lists its functions in a searchable
 table, follows exported-wrapper -> real-function chains, shows annotated

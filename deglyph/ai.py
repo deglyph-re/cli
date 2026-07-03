@@ -179,11 +179,11 @@ _SYSTEM = (
     "address (string_at). When the user asks about something not in the current "
     "function, use find_function or search to locate it, then disassemble/analyze "
     "it before answering. To trace a string's consumer, call xrefs on the string's "
-    "VA — it lists every instruction that loads it, including rip-relative `lea`. "
+    "VA; it lists every instruction that loads it, including rip-relative `lea`. "
     "Use read_data / string_at to confirm what a data VA actually points at "
     "before reasoning about its callers. Be concise and concrete. "
     "Cite addresses as sub_<hex> or 0x<hex> so the user can click them. The "
-    "disassembly and detector notes are heuristics, not proofs -- say plainly when "
+    "disassembly and detector notes are heuristics, not proofs; say plainly when "
     "the evidence is insufficient rather than guessing. "
     "When the evidence makes a sub_* function's purpose plain (e.g. a stub that "
     "loads a command opcode and forwards to a known sender, or an entrypoint with "
@@ -251,7 +251,7 @@ _TOOL_SCHEMAS = [
         "description": (
             "Cross-references for a target by name or 0x-address. For a "
             "function VA: callers and direct callees. For a data VA (string, "
-            "table, pointer constant): instructions that reference it — "
+            "table, pointer constant): instructions that reference it, "
             "including rip-relative `lea` and `mov`. Use this to find where a "
             "string is loaded from before reasoning about its consumers."
         ),
@@ -275,7 +275,7 @@ _TOOL_SCHEMAS = [
         "description": (
             "Hex + ASCII preview of up to 256 bytes at a virtual address. "
             "Use to inspect strings, tables, structs, or pointer arrays at "
-            "a data VA — for example, the buffer behind a string literal "
+            "a data VA, for example the buffer behind a string literal "
             "found via xrefs."
         ),
         "input_schema": {
@@ -847,7 +847,7 @@ class Assistant:
                 return f.va
         return None
 
-    # `[A-Za-z_][A-Za-z0-9_]*` plus `::` for C++-style names — what the user
+    # `[A-Za-z_][A-Za-z0-9_]*` plus `::` for C++-style names: what the user
     # would actually type at the rename prompt; anything else (whitespace, path
     # separators, NUL bytes) is rejected so the sidecar can't be poisoned.
     _RENAME_OK = re.compile(r"^[A-Za-z_][A-Za-z0-9_:]*$")

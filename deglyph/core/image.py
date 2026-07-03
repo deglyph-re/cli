@@ -33,11 +33,22 @@ class Arch(str, Enum):
     ARM = "arm"
     # AArch64
     ARM64 = "arm64"
+    # 32-bit RISC-V
+    RISCV32 = "riscv32"
+    # 64-bit RISC-V
+    RISCV64 = "riscv64"
     UNKNOWN = "unknown"
 
     @property
     def bits(self) -> int:
-        return {Arch.X86: 32, Arch.X64: 64, Arch.ARM: 32, Arch.ARM64: 64}.get(self, 0)
+        return {
+            Arch.X86: 32,
+            Arch.X64: 64,
+            Arch.ARM: 32,
+            Arch.ARM64: 64,
+            Arch.RISCV32: 32,
+            Arch.RISCV64: 64,
+        }.get(self, 0)
 
 
 @dataclass(slots=True)
@@ -222,6 +233,8 @@ def _detect_arch(b) -> Arch:
                 return Arch.ARM64
             if "ARM" in mach:
                 return Arch.ARM
+            if "RISCV" in mach.upper():
+                return Arch.RISCV64 if _elf_is_64bit(b) else Arch.RISCV32
         if "MachO" in fmt or "MACHO" in fmt:
             cpu = str(b.header.cpu_type)
             if "x86_64" in cpu or "X86_64" in cpu:
@@ -235,6 +248,21 @@ def _detect_arch(b) -> Arch:
     except Exception:
         pass
     return Arch.UNKNOWN
+
+
+def _elf_is_64bit(b) -> bool:
+    """True when an ELF is ELFCLASS64, best-effort across LIEF versions."""
+    try:
+        cls = str(getattr(b.header, "identity_class", ""))
+        if "64" in cls:
+            return True
+        if "32" in cls:
+            return False
+    except Exception:
+        pass
+    # Fall back to the imagebase width: a 64-bit ELF addresses above 4 GiB rarely,
+    # so default to 64-bit, the common RISC-V target, when the class is unreadable.
+    return True
 
 
 def _flags(s) -> str:
@@ -409,7 +437,7 @@ def _collect_funcs(b: Any, img: Image, base: int) -> None:
             log.debug("skipped export %r: %s", getattr(f, "name", "?"), e)
             continue
 
-    # Imported functions (thunks) — useful for the demo's import view
+    # Imported functions (thunks): useful for the demo's import view
     try:
         for f in b.imported_functions:
             va = int(getattr(f, "address", 0) or 0)
@@ -521,13 +549,7 @@ def load_image(
 
 
 def _demangle(name: str) -> str | None:
-    """Best-effort symbol demangling (MSVC / Itanium) when tooling is present."""
-    if not name or not (name.startswith("?") or name.startswith("_Z")):
-        return None
-    try:
-        # optional
-        import cxxfilt
+    """Best-effort symbol demangling (MSVC / Itanium C++ / Rust legacy + v0)."""
+    from .demangle import demangle
 
-        return cxxfilt.demangle(name)
-    except Exception:
-        return None
+    return demangle(name)

@@ -7,12 +7,12 @@ A stripped EXE exposes only its entrypoint and import thunks; its real functions
 sit unnamed in `.text`. `discover_functions` recovers them from three signals,
 each registered as a `sub_<va>` entry:
 
-  - **unwind-table start** (`re/unwind.py`) -- an authoritative boundary the OS
+  - **unwind-table start** (`re/unwind.py`): an authoritative boundary the OS
     unwinds the stack off (Mach-O function-starts, PE `.pdata`, ELF `eh_frame`);
     registered as `confidence="confirmed"`.
-  - **direct `call` target** -- a strong, low-false-positive function start;
+  - **direct `call` target**: a strong, low-false-positive function start;
     registered as `confidence="confirmed"`.
-  - **tail `jmp` target that leaves the calling function** -- a function reached
+  - **tail `jmp` target that leaves the calling function**: a function reached
     only by an optimized tail call (no `call` site); weaker, registered as
     `confidence="candidate"`.
 
@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from ..cache import cache_get, cache_put, file_sha256
 from ..core.disasm import Disassembler
 from ..core.image import Func, Image
+from .gosym import apply_go_symbols
 from .unwind import unwind_starts
 
 log = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ def scan_targets(
     Read-only: it does not mutate the image, so it is safe to run on a worker
     thread while the UI reads the same image. Apply the result with
     `add_discovered`. Scans up to `max_bytes` of code (this is the slow step on
-    large binaries -- Capstone decodes every byte of `.text`).
+    large binaries: Capstone decodes every byte of `.text`).
 
     Two passes over the decode: the first collects direct-`call` targets (the
     confirmed set), which then anchor the function-start boundaries used in the
@@ -231,8 +232,12 @@ def discover_functions(
 
     Convenience for headless use and tests; the TUI runs `scan_targets` on a
     worker and applies `add_discovered` on the UI thread. Idempotent.
+
+    A Go binary is named from its pclntab first, so those functions land with
+    their real names and the call-target scan then only adds the rest as `sub_*`.
     """
     if getattr(image, "_discovered", False):
         return 0
+    go_added = apply_go_symbols(image)
     hits = scan_targets(image, max_bytes=max_bytes, max_seconds=max_seconds)
-    return add_discovered(image, hits)
+    return go_added + add_discovered(image, hits)

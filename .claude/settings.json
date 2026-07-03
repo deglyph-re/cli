@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruff check:*)",
+      "Bash(black --check:*)",
+      "Bash(black deglyph:*)",
+      "Bash(black tests:*)",
+      "Bash(black scripts:*)",
+      "Bash(mypy deglyph:*)",
+      "Bash(python3 scripts/verify.py:*)",
+      "Bash(python scripts/verify.py:*)",
+      "Bash(pytest:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git blame:*)"
+    ],
+    "deny": [
+      "Read(~/.deglyph/token)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/verify-edit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

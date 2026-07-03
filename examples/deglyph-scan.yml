@@ -1,5 +1,5 @@
 # Example consumer workflow: scan a release binary on every push and pull
-# request. Findings land in three places -- the Actions run summary, the
+# request. Findings land in three places: the Actions run summary, the
 # Security tab (code scanning), and a sticky PR comment.
 # Copy this into your project's .github/workflows/ and edit `path`.
 name: binary scan
@@ -24,7 +24,7 @@ jobs:
       # - run: make release
 
       - name: Scan with deglyph
-        uses: deglyph-re/cli@v1.2.0
+        uses: deglyph-re/cli@v1.3.0
         with:
           path: build/app # file or directory
           fail-on: warning # error | warning | note | never

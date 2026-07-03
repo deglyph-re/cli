@@ -6,6 +6,7 @@ from .discover import (
     scan_targets,
 )
 from .fingerprint import SIGNATURES, LibHit, LibSignature, scan_fingerprint
+from .gosym import GoFunc, add_go_functions, apply_go_symbols, go_functions
 from .patterns import (
     CallArg,
     CrcLoop,
@@ -73,4 +74,8 @@ __all__ = [
     "LibHit",
     "SIGNATURES",
     "scan_fingerprint",
+    "GoFunc",
+    "go_functions",
+    "add_go_functions",
+    "apply_go_symbols",
 ]

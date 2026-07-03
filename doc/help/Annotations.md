@@ -2,8 +2,8 @@
 
 As you work through a binary you build understanding: this `sub_*` is the frame
 encoder, that constant is the protocol version, this function is worth returning
-to. `deglyph` lets you record that understanding as renames, notes, and bookmarks,
-and it persists across sessions.
+to. `deglyph` records that understanding as renames, notes, and bookmarks that
+persist across sessions.
 
 ## The three annotations
 

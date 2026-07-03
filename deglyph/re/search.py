@@ -101,7 +101,7 @@ def find_immediate(image: Image, value: int, *, limit: int = 500) -> list[Hit]:
 
     Catches CRC polynomials, magic constants, opcodes loaded into registers,
     and data references (`lea rcx, [rip+offset]` / `mov rax, [abs_va]`). For a
-    memory operand, the actual target VA is resolved before comparing —
+    memory operand, the actual target VA is resolved before comparing:
     rip-relative operands carry a displacement, not the absolute address.
     """
     dis = Disassembler(image)

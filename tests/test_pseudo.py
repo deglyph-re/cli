@@ -44,7 +44,7 @@ def test_store_idiom_uses_assignment(code_image):
 
 
 def test_unmodeled_instruction_passthrough(code_image):
-    # push rbp ; ret  — push has no model, kept as asm("...").
+    # push rbp ; ret. The push has no model, kept as asm("...").
     img = code_image(bytes.fromhex("55 c3"))
     code = _code(pseudo_c(img, 0x1000))
     assert any(c.startswith('asm("push') for c in code)
