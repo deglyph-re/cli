@@ -25,7 +25,7 @@ jobs:
       SQLITE_AMALG: "3460100"
       SRC: ${{ github.workspace }}/_funcdb_src
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v5
