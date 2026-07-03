@@ -41,7 +41,7 @@ deglyph scan PATH                # CI scan; exits non-zero at/above --fail-on (d
 deglyph scan PATH --sarif        # SARIF 2.1.0 for code scanning
 ```
 
-`deglyph scan` also ships as a composite GitHub Action (`deglyph-re/cli@v1.3.0`). See `README.md` for the workflow.
+`deglyph scan` also ships as a composite GitHub Action (`deglyph-re/cli@v1.4.0`). See `README.md` for the workflow.
 
 ## Working in this repository
 

@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-02
+
 ### Added
 - Content-addressed function identity (`re/funcsig.py`): a relocation-stable
   exact hash plus n-gram similarity over normalized instructions; every
@@ -197,7 +199,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wrapper-to-implementation thunk resolution, call-graph cross-references,
   immediate-store / call-argument / CRC-loop detectors, and the Textual TUI.
 
-[Unreleased]: https://github.com/deglyph-re/cli/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/deglyph-re/cli/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/deglyph-re/cli/releases/tag/v1.4.0
 [1.3.0]: https://github.com/deglyph-re/cli/releases/tag/v1.3.0
 [1.2.0]: https://github.com/deglyph-re/cli/releases/tag/v1.2.0
 [1.1.0]: https://github.com/deglyph-re/cli/releases/tag/v1.1.0
