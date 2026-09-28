@@ -4,7 +4,7 @@ The function database is a corpus of per-function signatures harvested from well
 
 Each signature is the relocation-stable identity from the analysis core: the function's normalized instruction stream, hashed. A build that only moved a function keeps its signature; a changed body does not. The corpus is rebuilt in CI over many programs and shipped with the tool.
 
-This catalog holds 4418 function signature(s) across 9 library(ies).
+This catalog holds 4419 function signature(s) across 9 library(ies).
 
 ## Catalogued libraries
 
@@ -12,7 +12,7 @@ This catalog holds 4418 function signature(s) across 9 library(ies).
 | --- | --- | --- | --- | --- |
 | bzip2 | 1.0.8 | generic | x86-64 | 29 |
 | curl | (versionless) | generic | x86-64 | 80 |
-| expat | 2.6.1 | generic | x86-64 | 30 |
+| expat | 2.6.1 | generic | x86-64 | 31 |
 | lz4 | 1.9.4 | generic | x86-64 | 129 |
 | openssl | (versionless) | generic | x86-64 | 2398 |
 | pcre2 | 10.42 | generic | x86-64 | 43 |
